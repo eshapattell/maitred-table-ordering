@@ -1,0 +1,1 @@
+// AllergySummary.jsx
