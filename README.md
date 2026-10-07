@@ -32,6 +32,3 @@ maitred/
 
 ## Future scope
 Online payments (Razorpay), subscription plans for restaurants, per-restaurant branding, wait-time estimates, owner analytics, "surprise a friend" mode.
-
-## Setup (coming soon)
-Copy `backend/.env.example` to `backend/.env` and fill in the values.
