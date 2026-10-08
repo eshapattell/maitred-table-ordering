@@ -12,7 +12,6 @@ A collaborative table-ordering platform for restaurants. Diners scan a table QR 
 - Bill split: equal, by item, or custom share
 - Gemini-powered recommendations and a "Surprise Me" mode, restricted to a pre-validated safe dish pool
 - Restaurant tools: menu management, table management, QR generation
-- Multi-restaurant design (data scoped by `restaurantId`)
 
 ## Tech stack
 MongoDB, Express, React (Vite), Node.js, Socket.io, Gemini API
@@ -31,4 +30,5 @@ maitred/
 ```
 
 ## Future scope
-Online payments (Razorpay), subscription plans for restaurants, per-restaurant branding, wait-time estimates, owner analytics, "surprise a friend" mode.
+- Online payments (Razorpay), subscription plans for restaurants, per-restaurant branding, wait-time estimates, owner analytics, "surprise a friend" mode.
+- Multi-restaurant design (data scoped by `restaurantId`)
