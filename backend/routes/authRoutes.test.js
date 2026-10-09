@@ -1,4 +1,5 @@
 // authRoutes.test.js: Integration tests for authentication endpoints
+import { jest } from '@jest/globals';
 import request from 'supertest';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -176,6 +177,37 @@ describe('Auth Routes (/api/auth)', () => {
       expect(res.body.user.id).toBe(String(ownerUser._id));
       expect(res.body.user.email).toBe('owner@maitred.dining');
       expect(res.body.user.role).toBe('owner');
+    });
+
+    test('misconfigured JWT_SECRET (under 16 chars) returns 500 Internal Server Error, not 401, and recovers when restored', async () => {
+      // Get a valid token first
+      const loginRes = await request(app)
+        .post('/api/auth/login')
+        .send({ email: 'owner@maitred.dining', password: ownerPassword });
+      expect(loginRes.status).toBe(200);
+      const validToken = loginRes.body.token;
+
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const savedSecret = process.env.JWT_SECRET;
+      try {
+        process.env.JWT_SECRET = 'short';
+        const res500 = await request(app)
+          .get('/api/auth/me')
+          .set('Authorization', `Bearer ${validToken}`);
+
+        expect(res500.status).toBe(500);
+        expect(res500.body).toEqual({ message: 'Internal Server Error' });
+      } finally {
+        consoleErrorSpy.mockRestore();
+        process.env.JWT_SECRET = savedSecret;
+      }
+
+      // After restoring, the same token gives 200 again
+      const res200 = await request(app)
+        .get('/api/auth/me')
+        .set('Authorization', `Bearer ${validToken}`);
+      expect(res200.status).toBe(200);
+      expect(res200.body.user.email).toBe('owner@maitred.dining');
     });
 
     test('missing Authorization header returns 401', async () => {

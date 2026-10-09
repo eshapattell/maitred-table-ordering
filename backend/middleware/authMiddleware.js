@@ -21,7 +21,10 @@ export const protect = async (req, res, next) => {
   let payload;
   try {
     payload = verifyToken(token);
-  } catch {
+  } catch (err) {
+    if (err && err.code === 'JWT_SECRET_INVALID') {
+      return next(err);
+    }
     return res.status(401).json({ message: 'Not authorised' });
   }
 

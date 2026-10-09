@@ -5,6 +5,7 @@ import {
   createTable,
   getTableQR,
   deleteTable,
+  rotateTableToken,
 } from '../controllers/tableController.js';
 import { protect, requireRole } from '../middleware/authMiddleware.js';
 
@@ -16,6 +17,7 @@ router.use(protect, requireRole('owner'));
 router.get('/', getTables);
 router.post('/', createTable);
 router.get('/:tableId/qr', getTableQR);
+router.post('/:tableId/rotate-token', rotateTableToken);
 router.delete('/:tableId', deleteTable);
 
 export default router;

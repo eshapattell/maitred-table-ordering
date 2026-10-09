@@ -10,9 +10,19 @@ import jwt from 'jsonwebtoken';
 const getSecret = () => {
   const secret = process.env.JWT_SECRET;
   if (!secret || typeof secret !== 'string' || secret.length < 16) {
-    throw new Error('JWT_SECRET is missing or must be at least 16 characters long');
+    const error = new Error('JWT_SECRET is missing or must be at least 16 characters long');
+    error.code = 'JWT_SECRET_INVALID';
+    throw error;
   }
   return secret;
+};
+
+/**
+ * Asserts that JWT_SECRET is properly configured in the environment.
+ * Throws an error with code "JWT_SECRET_INVALID" if missing or under 16 characters.
+ */
+export const assertJwtSecret = () => {
+  getSecret();
 };
 
 /**

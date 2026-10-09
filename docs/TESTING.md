@@ -13,8 +13,15 @@ All automated tests adhere to project testing rules:
 | `GET /api/health` | 200 OK, `{ status: "ok", app: "maitred" }` | `backend/server.test.js` | Passed |
 | Unhandled route (`/api/unknown`) | 404 Not Found, JSON error message | `backend/server.test.js` | Passed |
 | `notFound` middleware | Sets HTTP 404, forwards Error to `next()` | `backend/middleware/errorMiddleware.test.js` | Passed |
-| `errorHandler` (development) | Returns JSON with `message` and `stack` | `backend/middleware/errorMiddleware.test.js` | Passed |
-| `errorHandler` (production / other) | Returns JSON with only `message` (omits `stack`) | `backend/middleware/errorMiddleware.test.js` | Passed |
+| `errorHandler` (development) | Returns JSON with real `message` and `stack` | `backend/middleware/errorMiddleware.test.js` | Passed |
+| `errorHandler` (production / other) | Returns 500 `{ message: "Internal Server Error" }` (omits `stack`) | `backend/middleware/errorMiddleware.test.js` | Passed |
+| `errorHandler` (headersSent) | Delegates to `next(err)` and writes nothing to response | `backend/middleware/errorMiddleware.test.js` | Passed |
+| `errorHandler` (4xx preservation) | Retains `err.message` for status < 500 outside development | `backend/middleware/errorMiddleware.test.js` | Passed |
+| `errorHandler` (status ranges) | Respects `err.status` / `err.statusCode` between 400 and 599 | `backend/middleware/errorMiddleware.test.js` | Passed |
+| `errorHandler` (JSON parse error) | `entity.parse.failed` gives 400 `{ message: "Invalid JSON body" }` | `backend/middleware/errorMiddleware.test.js` | Passed |
+| `errorHandler` (Payload too large) | `entity.too.large` gives 413 `{ message: "Payload too large" }` | `backend/middleware/errorMiddleware.test.js` | Passed |
+| `errorHandler` (Safe logging) | Fixed label + err.message; "invalid JSON body" for parse errors; no body leakage | `backend/middleware/errorMiddleware.test.js` | Passed |
+| Body parser error handling | Malformed JSON: 400 "Invalid JSON body"; 200KB body: 413 "Payload too large"; {}: 400 | `backend/server.test.js` | Passed |
 
 ## Model Schema Validation Test Checklist
 
@@ -30,8 +37,13 @@ All automated tests adhere to project testing rules:
 | `Feedback` | Valid doc passes, rating required | `backend/models/models.test.js` | Passed |
 | Enum Validation | Rejects invalid role, status, splitMode | `backend/models/models.test.js` | Passed |
 | Range & Numerical Constraints | Rejects spiceLevel/rating not 1-5, negative price, cart qty 0 | `backend/models/models.test.js` | Passed |
-| Bill Schema Purity | No paths contain "razorpay" or "payment" | `backend/models/models.test.js` | Passed |
 | TableSession Partial Index | Unique on `tableId` with `status: "open"` | `backend/models/models.test.js` | Passed |
+| TableSession DB Index Verified | `collection.indexes()` unique index with `partialFilterExpression: { status: "open" }` | `backend/models/tableSessionIndex.test.js` | Passed |
+| Two open sessions clash | Second open create for same tableId rejects with MongoDB error 11000 | `backend/models/tableSessionIndex.test.js` | Passed |
+| Open + closed / multiple closed | One open + one closed allowed; multiple closed sessions for same table allowed | `backend/models/tableSessionIndex.test.js` | Passed |
+| Re-opening closed table | After open session closed via updateOne, a new open session succeeds | `backend/models/tableSessionIndex.test.js` | Passed |
+| Multi-table session isolation | Two distinct tables can each maintain one open session concurrently | `backend/models/tableSessionIndex.test.js` | Passed |
+| Concurrent session creation | Promise.all simultaneous creates: exactly 1 succeeds, 1 rejects with 11000 | `backend/models/tableSessionIndex.test.js` | Passed |
 
 ## Allergy Safety & Pool Builder Test Checklist
 
@@ -57,6 +69,7 @@ All automated tests adhere to project testing rules:
 | `generateToken` & `verifyToken` | Round-trip signing, correct claims (sub, role, restaurantId) | `backend/utils/generateToken.test.js` | Passed |
 | Token tampering & algorithms | Rejects wrong secret, expired, tampered payload, alg "none", and HS512 | `backend/utils/generateToken.test.js` | Passed |
 | Secret validation | Missing or <16 char JWT_SECRET throws clear error without leaking secret value | `backend/utils/generateToken.test.js` | Passed |
+| `assertJwtSecret` startup guard | Passes for >=16 char; throws with code JWT_SECRET_INVALID without leaking secret | `backend/utils/generateToken.test.js` | Passed |
 
 ## Staff Authentication Routes (`/api/auth`) Test Checklist
 
@@ -69,6 +82,7 @@ All automated tests adhere to project testing rules:
 | `POST /api/auth/login` (Bad input / NoSQL injection) | 400 for missing credentials, non-string passwords, or `{ "$ne": null }` | `backend/routes/authRoutes.test.js` | Passed |
 | `GET /api/auth/me` (Valid token) | 200 OK, returns authenticated database user profile | `backend/routes/authRoutes.test.js` | Passed |
 | `GET /api/auth/me` (Token failures) | 401 for missing header, malformed Bearer, expired, wrong secret, deleted user | `backend/routes/authRoutes.test.js` | Passed |
+| `GET /api/auth/me` (Invalid JWT_SECRET) | 500 Internal Server Error (not 401) on misconfigured secret, recovers when restored | `backend/routes/authRoutes.test.js` | Passed |
 | `POST /api/auth/staff` (Owner creates kitchen) | 201 Created, sets role "kitchen", owner restaurantId, new user can log in | `backend/routes/authRoutes.test.js` | Passed |
 | `POST /api/auth/staff` (Role authorization) | 403 Forbidden for kitchen tokens (including forged token payload role) | `backend/routes/authRoutes.test.js` | Passed |
 | `POST /api/auth/staff` (Input & duplicate validation) | 400 for bad name/email/short password, 409 Conflict for existing email | `backend/routes/authRoutes.test.js` | Passed |
@@ -95,7 +109,7 @@ All automated tests adhere to project testing rules:
 
 | Route or Event | Expected Result | Test File | Status |
 | :--- | :--- | :--- | :--- |
-| Authorization on all 4 endpoints | 401 without token, 403 for kitchen token, 401 for garbage token | `backend/routes/tableRoutes.test.js` | Passed |
+| Authorization on all 5 endpoints | 401 without token, 403 for kitchen token, 401 for garbage token | `backend/routes/tableRoutes.test.js` | Passed |
 | `POST /api/tables` (Valid creation) | 201 Created with 32-character hex qrToken, scoped to owner restaurant | `backend/routes/tableRoutes.test.js` | Passed |
 | `POST /api/tables` (Input validation) | 400 for missing, 0, -1, 1.5, "3", 501, null, object, or array | `backend/routes/tableRoutes.test.js` | Passed |
 | `POST /api/tables` (Uniqueness & isolation) | 409 for duplicate in same restaurant; succeeds in separate restaurant | `backend/routes/tableRoutes.test.js` | Passed |
@@ -103,6 +117,8 @@ All automated tests adhere to project testing rules:
 | `GET /api/tables` (List & ordering) | 200 OK, returns owner tables sorted by number ascending | `backend/routes/tableRoutes.test.js` | Passed |
 | `GET /api/tables/:id/qr` (QR Generation) | 200 OK with table info, canonical join URL, and valid QR PNG data URL | `backend/routes/tableRoutes.test.js` | Passed |
 | `GET /api/tables/:id/qr` (Cross-tenant/format) | 404 for another restaurant's table or invalid ObjectId | `backend/routes/tableRoutes.test.js` | Passed |
+| `POST /api/tables/:id/rotate-token` (Owner rotation) | 200 OK, new 32-hex token, updates QR URL, leaves open session active | `backend/routes/tableRoutes.test.js` | Passed |
+| `POST /api/tables/:id/rotate-token` (Auth & scoping) | 404 for restaurant B or invalid ID, 403 for kitchen, 401 without token | `backend/routes/tableRoutes.test.js` | Passed |
 | `DELETE /api/tables/:id` (Safe deletion) | 200 OK, deletes table from database | `backend/routes/tableRoutes.test.js` | Passed |
 | `DELETE /api/tables/:id` (Active session check)| 409 Conflict if table has open session; 200 if only closed sessions | `backend/routes/tableRoutes.test.js` | Passed |
 | `DELETE /api/tables/:id` (Cross-tenant/format)| 404 for another restaurant's table or invalid ObjectId | `backend/routes/tableRoutes.test.js` | Passed |
@@ -166,13 +182,14 @@ All automated tests adhere to project testing rules:
 | Gap | Closed by | Proven by | Status |
 | :--- | :--- | :--- | :--- |
 | Table delete vs guest join race | delete side: Task 5b; join side: session task (after creating or finding the session, re-check the table still exists, otherwise close the session and answer 404) | closeOrphanSessions tests now; join re-check test in the session task | half closed |
-| Missing JWT_SECRET shows as 401 in protect instead of failing at startup | hardening task | pending | open |
+| Missing JWT_SECRET shows as 401 in protect instead of failing at startup | Task 7 | generateToken and authRoutes tests | closed (Task 7) |
 | No rate limit on login | hardening task (needs express-rate-limit, needs my approval) | pending | open |
-| Malformed JSON body: confirm it answers 400, not 500 | hardening task | pending | open |
-| Table QR token is a static secret, so a photo of the QR lets anyone join | rotate-token route in the hardening task | pending | open |
+| Malformed JSON body: confirm it answers 400, not 500 | Task 7 | server.test.js and the errorMiddleware tests | closed (Task 7) |
+| Table QR token is a static secret, so a photo of the QR lets anyone join | rotate-token route done in Task 7, the real fix is the session lifecycle (see the new row below) | tableRoutes rotate-token tests | half closed |
+| A previous party, or anyone holding a photo of the QR, can reach the next party's table. Needs a session lifecycle: staff opens the table or approves guests, closing the table invalidates every guest token and socket connection, every guest request re-checks that its session is open and its table still exists, and an inactivity timeout closes forgotten sessions | session task (design waits for the mentor's answer) | pending | open |
 | $inc skips the min 1 rule on cart qty | cart task | pending | open |
 | Guest allergies must be declared before any cart action (allergiesDeclared) | session task | pending | open |
-| Unique open-session index is declared but not proven against the real database | session task | pending | open |
+| Unique open-session index is declared but not proven against the real database | Task 7 | tableSessionIndex.test.js | closed (Task 7) |
 | Frontend allergen list must match KNOWN_ALLERGENS exactly | frontend foundation task | pending | open |
 | npm audit: review production dependencies before submission | final review | pending | open |
 | Public menu returns raw allergen tags: guest screens must use the server-computed safe flag from the session menu and never compute safety in the client | session task and frontend tasks | pending | open |

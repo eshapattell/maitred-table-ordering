@@ -12,6 +12,7 @@ import restaurantRoutes from './routes/restaurantRoutes.js';
 import tableRoutes from './routes/tableRoutes.js';
 import menuRoutes from './routes/menuRoutes.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
+import { assertJwtSecret } from './utils/generateToken.js';
 
 // Load environment variables from .env
 dotenv.config();
@@ -58,6 +59,14 @@ const PORT = process.env.PORT || 5000;
 
 // Connect to MongoDB on startup, then listen on PORT (only when not in test mode)
 const startServer = async () => {
+  // A server configuration mistake must fail loudly at startup and must never be reported to every client as "not authorised"
+  try {
+    assertJwtSecret();
+  } catch (err) {
+    console.error(err.message);
+    process.exit(1);
+  }
+
   await connectDB();
   server.listen(PORT, () => {
     console.log(`[maitred] Server listening on port ${PORT}`);

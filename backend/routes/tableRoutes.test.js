@@ -30,11 +30,12 @@ describe('Table Routes (/api/tables)', () => {
     await disconnectTestDb();
   });
 
-  describe('Authorization on all 4 routes', () => {
+  describe('Authorization on all 5 routes', () => {
     const protectedRoutes = [
       { method: 'get', path: '/api/tables' },
       { method: 'post', path: '/api/tables', body: { number: 99 } },
       { method: 'get', path: '/api/tables/DUMMY_ID/qr' },
+      { method: 'post', path: '/api/tables/DUMMY_ID/rotate-token' },
       { method: 'delete', path: '/api/tables/DUMMY_ID' },
     ];
 
@@ -322,6 +323,96 @@ describe('Table Routes (/api/tables)', () => {
 
       expect(res.status).toBe(404);
       expect(res.body.message).toBe('Not found');
+    });
+  });
+
+  describe('POST /api/tables/:tableId/rotate-token', () => {
+    test('owner rotates (200): new token matches 32 hex chars, differs from old, GET qr uses new token, old token gone, open session preserved', async () => {
+      const initialToken = 'initial_token_1234567890abcdef12';
+      const table = await Table.create({
+        restaurantId: fixtures.restaurantA._id,
+        number: 88,
+        qrToken: initialToken,
+      });
+
+      // Active diners have an open session
+      const session = await TableSession.create({
+        tableId: table._id,
+        restaurantId: fixtures.restaurantA._id,
+        status: 'open',
+      });
+
+      // Rotate token as owner
+      const res = await request(app)
+        .post(`/api/tables/${table._id}/rotate-token`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.table).toBeDefined();
+      expect(res.body.table.id).toBe(String(table._id));
+      expect(res.body.table.number).toBe(88);
+
+      const newQrToken = res.body.table.qrToken;
+      expect(newQrToken).toMatch(/^[0-9a-f]{32}$/);
+      expect(newQrToken).not.toBe(initialToken);
+
+      // GET qr afterwards builds its url with the new token
+      const qrRes = await request(app)
+        .get(`/api/tables/${table._id}/qr`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+
+      expect(qrRes.status).toBe(200);
+      expect(qrRes.body.url).toContain(newQrToken);
+      expect(qrRes.body.url).not.toContain(initialToken);
+
+      // The old token no longer exists on any table
+      const oldTokenTable = await Table.findOne({ qrToken: initialToken });
+      expect(oldTokenTable).toBeNull();
+
+      // An open TableSession on that table is still open
+      const refreshedSession = await TableSession.findById(session._id);
+      expect(refreshedSession.status).toBe('open');
+    });
+
+    test('another restaurant table gives 404 and keeps its token', async () => {
+      const tokenB = 'restaurant_b_fixed_token_32chars';
+      const tableB = await Table.create({
+        restaurantId: fixtures.restaurantB._id,
+        number: 89,
+        qrToken: tokenB,
+      });
+
+      const res = await request(app)
+        .post(`/api/tables/${tableB._id}/rotate-token`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+
+      expect(res.status).toBe(404);
+      expect(res.body.message).toBe('Not found');
+
+      const recheckedB = await Table.findById(tableB._id);
+      expect(recheckedB.qrToken).toBe(tokenB);
+    });
+
+    test('"not-an-id" gives 404', async () => {
+      const res = await request(app)
+        .post('/api/tables/not-an-id/rotate-token')
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+
+      expect(res.status).toBe(404);
+      expect(res.body.message).toBe('Not found');
+    });
+
+    test('kitchen returns 403', async () => {
+      const res = await request(app)
+        .post(`/api/tables/${testTableA._id}/rotate-token`)
+        .set('Authorization', `Bearer ${fixtures.kitchenAToken}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    test('no token returns 401', async () => {
+      const res = await request(app).post(`/api/tables/${testTableA._id}/rotate-token`);
+      expect(res.status).toBe(401);
     });
   });
 

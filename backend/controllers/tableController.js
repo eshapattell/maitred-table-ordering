@@ -176,3 +176,71 @@ export const deleteTable = async (req, res, next) => {
     next(err);
   }
 };
+
+/**
+ * Rotates the QR token for an existing dining table.
+ * Generates a new 16-byte hex token and updates the table atomically.
+ *
+ * Viva note: Do NOT close open sessions: the party already seated keeps its session
+ * and only the printed QR changes. Rotating is an emergency tool if a token is abused;
+ * the real protection is the session lifecycle, which is a later task.
+ */
+export const rotateTableToken = async (req, res, next) => {
+  try {
+    const { tableId } = req.params;
+
+    if (!mongoose.isObjectIdOrHexString(tableId)) {
+      return res.status(404).json({ message: 'Not found' });
+    }
+
+    const table = await Table.findOne({
+      _id: tableId,
+      restaurantId: req.user.restaurantId,
+    });
+
+    if (!table) {
+      return res.status(404).json({ message: 'Not found' });
+    }
+
+    let newQrToken = crypto.randomBytes(16).toString('hex');
+
+    const performUpdate = async (tokenToSet) => {
+      return await Table.updateOne(
+        { _id: table._id, restaurantId: req.user.restaurantId },
+        { $set: { qrToken: tokenToSet } }
+      );
+    };
+
+    let updateRes;
+    try {
+      updateRes = await performUpdate(newQrToken);
+    } catch (err) {
+      if (err && err.code === 11000) {
+        // If MongoDB reports a duplicate key, generate a new token and retry once
+        newQrToken = crypto.randomBytes(16).toString('hex');
+        try {
+          updateRes = await performUpdate(newQrToken);
+        } catch (retryErr) {
+          return next(retryErr);
+        }
+      } else {
+        return next(err);
+      }
+    }
+
+    if (updateRes.matchedCount === 0) {
+      return res.status(404).json({ message: 'Not found' });
+    }
+
+    // Party already seated keeps their open session; only the printed QR changes
+    res.status(200).json({
+      table: {
+        id: String(table._id),
+        number: table.number,
+        qrToken: newQrToken,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};

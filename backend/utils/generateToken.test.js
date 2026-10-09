@@ -1,6 +1,5 @@
-// generateToken.test.js: Unit tests for JWT generation and verification
 import jwt from 'jsonwebtoken';
-import { generateToken, verifyToken } from './generateToken.js';
+import { generateToken, verifyToken, assertJwtSecret } from './generateToken.js';
 
 describe('generateToken and verifyToken', () => {
   const originalSecret = process.env.JWT_SECRET;
@@ -108,5 +107,55 @@ describe('generateToken and verifyToken', () => {
 
     expect(() => generateToken(user)).toThrow(/JWT_SECRET/);
     expect(() => verifyToken('valid.jwt.token')).toThrow(/JWT_SECRET/);
+  });
+
+  describe('assertJwtSecret', () => {
+    test('passes with a 16-character or longer secret', () => {
+      process.env.JWT_SECRET = '1234567890123456';
+      expect(() => assertJwtSecret()).not.toThrow();
+
+      process.env.JWT_SECRET = 'a_very_long_secure_secret_key_exceeding_16_bytes';
+      expect(() => assertJwtSecret()).not.toThrow();
+    });
+
+    test('throws for a missing secret with code JWT_SECRET_INVALID without leaking value', () => {
+      delete process.env.JWT_SECRET;
+      let thrownError;
+      try {
+        assertJwtSecret();
+      } catch (err) {
+        thrownError = err;
+      }
+      expect(thrownError).toBeDefined();
+      expect(thrownError.code).toBe('JWT_SECRET_INVALID');
+      expect(thrownError.message).toMatch(/JWT_SECRET/);
+    });
+
+    test('throws for an empty secret with code JWT_SECRET_INVALID without leaking value', () => {
+      process.env.JWT_SECRET = '';
+      let thrownError;
+      try {
+        assertJwtSecret();
+      } catch (err) {
+        thrownError = err;
+      }
+      expect(thrownError).toBeDefined();
+      expect(thrownError.code).toBe('JWT_SECRET_INVALID');
+      expect(thrownError.message).toMatch(/JWT_SECRET/);
+    });
+
+    test('throws for a 5-character secret with code JWT_SECRET_INVALID and never leaks secret value', () => {
+      process.env.JWT_SECRET = 'short';
+      let thrownError;
+      try {
+        assertJwtSecret();
+      } catch (err) {
+        thrownError = err;
+      }
+      expect(thrownError).toBeDefined();
+      expect(thrownError.code).toBe('JWT_SECRET_INVALID');
+      expect(thrownError.message).toMatch(/JWT_SECRET/);
+      expect(thrownError.message).not.toContain('short');
+    });
   });
 });
