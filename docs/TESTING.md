@@ -106,4 +106,19 @@ All automated tests adhere to project testing rules:
 | `DELETE /api/tables/:id` (Safe deletion) | 200 OK, deletes table from database | `backend/routes/tableRoutes.test.js` | Passed |
 | `DELETE /api/tables/:id` (Active session check)| 409 Conflict if table has open session; 200 if only closed sessions | `backend/routes/tableRoutes.test.js` | Passed |
 | `DELETE /api/tables/:id` (Cross-tenant/format)| 404 for another restaurant's table or invalid ObjectId | `backend/routes/tableRoutes.test.js` | Passed |
+| `closeOrphanSessions` helper | Closes open sessions for table, leaves closed/other open sessions untouched, 0 if empty | `backend/routes/tableRoutes.test.js` | Passed |
 
+## Known gaps
+
+| Gap | Closed by | Proven by | Status |
+| :--- | :--- | :--- | :--- |
+| Table delete vs guest join race | delete side: Task 5b; join side: session task (after creating or finding the session, re-check the table still exists, otherwise close the session and answer 404) | closeOrphanSessions tests now; join re-check test in the session task | half closed |
+| Missing JWT_SECRET shows as 401 in protect instead of failing at startup | hardening task | pending | open |
+| No rate limit on login | hardening task (needs express-rate-limit, needs my approval) | pending | open |
+| Malformed JSON body: confirm it answers 400, not 500 | hardening task | pending | open |
+| Table QR token is a static secret, so a photo of the QR lets anyone join | rotate-token route in the hardening task | pending | open |
+| $inc skips the min 1 rule on cart qty | cart task | pending | open |
+| Guest allergies must be declared before any cart action (allergiesDeclared) | session task | pending | open |
+| Unique open-session index is declared but not proven against the real database | session task | pending | open |
+| Frontend allergen list must match KNOWN_ALLERGENS exactly | frontend foundation task | pending | open |
+| npm audit: review production dependencies before submission | final review | pending | open |

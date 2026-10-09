@@ -121,6 +121,21 @@ export const getTableQR = async (req, res, next) => {
 };
 
 /**
+ * Closes every TableSession of that table that is still "open", using one updateMany,
+ * and returns the number of sessions it closed.
+ *
+ * @param {string|mongoose.Types.ObjectId} tableId
+ * @returns {Promise<number>}
+ */
+export const closeOrphanSessions = async (tableId) => {
+  const result = await TableSession.updateMany(
+    { tableId, status: 'open' },
+    { $set: { status: 'closed' } }
+  );
+  return result.modifiedCount;
+};
+
+/**
  * Deletes a table if it does not have any currently open table sessions.
  */
 export const deleteTable = async (req, res, next) => {
@@ -151,6 +166,10 @@ export const deleteTable = async (req, res, next) => {
     }
 
     await Table.findByIdAndDelete(table._id);
+
+    // Viva note: A guest could open a session between the check and the delete;
+    // this closes it, so no usable session can outlive its table.
+    await closeOrphanSessions(table._id);
 
     res.status(200).json({ message: 'Table deleted' });
   } catch (err) {

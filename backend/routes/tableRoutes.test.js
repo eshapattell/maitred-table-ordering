@@ -4,6 +4,7 @@ import mongoose from 'mongoose';
 import { app } from '../server.js';
 import Table from '../models/Table.js';
 import TableSession from '../models/TableSession.js';
+import { closeOrphanSessions } from '../controllers/tableController.js';
 import { connectTestDb, clearTestDb, disconnectTestDb } from '../config/testDb.js';
 import { createFixtures } from '../config/testFixtures.js';
 
@@ -323,4 +324,54 @@ describe('Table Routes (/api/tables)', () => {
       expect(res.body.message).toBe('Not found');
     });
   });
+
+  describe('closeOrphanSessions helper', () => {
+    test('closes an open session for a table id (table need not exist) and returns 1', async () => {
+      const nonExistentTableId = new mongoose.Types.ObjectId();
+      const session = await TableSession.create({
+        tableId: nonExistentTableId,
+        restaurantId: fixtures.restaurantA._id,
+        status: 'open',
+      });
+
+      const closedCount = await closeOrphanSessions(nonExistentTableId);
+      expect(closedCount).toBe(1);
+
+      const refreshed = await TableSession.findById(session._id);
+      expect(refreshed.status).toBe('closed');
+    });
+
+    test('leaves a closed session and another table open session untouched', async () => {
+      const tableOneId = new mongoose.Types.ObjectId();
+      const tableTwoId = new mongoose.Types.ObjectId();
+
+      const closedSessionTableOne = await TableSession.create({
+        tableId: tableOneId,
+        restaurantId: fixtures.restaurantA._id,
+        status: 'closed',
+      });
+
+      const openSessionTableTwo = await TableSession.create({
+        tableId: tableTwoId,
+        restaurantId: fixtures.restaurantA._id,
+        status: 'open',
+      });
+
+      const closedCount = await closeOrphanSessions(tableOneId);
+      expect(closedCount).toBe(0);
+
+      const checkTableOne = await TableSession.findById(closedSessionTableOne._id);
+      expect(checkTableOne.status).toBe('closed');
+
+      const checkTableTwo = await TableSession.findById(openSessionTableTwo._id);
+      expect(checkTableTwo.status).toBe('open');
+    });
+
+    test('returns 0 when there is nothing to close', async () => {
+      const unusedTableId = new mongoose.Types.ObjectId();
+      const closedCount = await closeOrphanSessions(unusedTableId);
+      expect(closedCount).toBe(0);
+    });
+  });
 });
+
