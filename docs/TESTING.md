@@ -108,6 +108,50 @@ All automated tests adhere to project testing rules:
 | `DELETE /api/tables/:id` (Cross-tenant/format)| 404 for another restaurant's table or invalid ObjectId | `backend/routes/tableRoutes.test.js` | Passed |
 | `closeOrphanSessions` helper | Closes open sessions for table, leaves closed/other open sessions untouched, 0 if empty | `backend/routes/tableRoutes.test.js` | Passed |
 
+## Menu Management & Public Routes (`/api/menu`) Test Checklist
+
+| Route or Feature | Expected Result | Test File | Status |
+| :--- | :--- | :--- | :--- |
+| `GET /api/menu/:restaurantId` (Public) | 200 OK with available items; excludes unavailable & other restaurants | `backend/routes/menuRoutes.test.js` | Passed |
+| `GET /api/menu/:restaurantId` (Key whitelisting) | Strict public projection (exact 14 keys; no internal fields or timestamps) | `backend/routes/menuRoutes.test.js` | Passed |
+| `GET /api/menu/:restaurantId` (Public access) | 200 OK without token; 404 on unknown or invalid restaurantId | `backend/routes/menuRoutes.test.js` | Passed |
+| `GET /api/menu` (Staff access) | 200 OK for owner & kitchen; includes unavailable items with available key | `backend/routes/menuRoutes.test.js` | Passed |
+| `GET /api/menu` (Auth failures) | 401 without token or with garbage token | `backend/routes/menuRoutes.test.js` | Passed |
+| `POST /api/menu` (Owner creation) | 201 Created; forces allergensConfirmed: false, normalises allergens, defaults desc | `backend/routes/menuRoutes.test.js` | Passed |
+| `POST /api/menu` (Empty allergens) | 201 Created with explicit `[]` allergens | `backend/routes/menuRoutes.test.js` | Passed |
+| `POST /api/menu` (Missing allergens) | 400 Bad Request; missing allergens is never read as "none" | `backend/routes/menuRoutes.test.js` | Passed |
+| `POST /api/menu` (Field validation sweep) | 400 Bad Request on invalid name, price, category, veg, allergens, spice, etc. | `backend/routes/menuRoutes.test.js` | Passed |
+| `POST /api/menu` (Role authorization) | 403 Forbidden for kitchen; 401 without token | `backend/routes/menuRoutes.test.js` | Passed |
+| `PATCH /api/menu/:itemId` (Partial update) | 200 OK on editable fields; price persists; resets allergensConfirmed if tags change | `backend/routes/menuRoutes.test.js` | Passed |
+| `PATCH /api/menu/:itemId` (Unchanged allergens) | Retains allergensConfirmed: true and leaves stored array untouched | `backend/routes/menuRoutes.test.js` | Passed |
+| `PATCH /api/menu/:itemId` (Non-editable fields) | 400 "Nothing to update" if only available/restaurantId/allergensConfirmed sent | `backend/routes/menuRoutes.test.js` | Passed |
+| `PATCH /api/menu/:itemId` (Auth & scoping) | 404 for restaurant B or invalid id; 403 for kitchen; 401 without token | `backend/routes/menuRoutes.test.js` | Passed |
+| `POST /api/menu/:itemId/confirm-allergens` | 200 OK sets allergensConfirmed: true; idempotent on repeated confirmation | `backend/routes/menuRoutes.test.js` | Passed |
+| `POST /api/menu/:itemId/confirm-allergens` (Validation) | 400 on missing allergens, non-array, or unknown tag | `backend/routes/menuRoutes.test.js` | Passed |
+| `POST /api/menu/:itemId/confirm-allergens` (Mismatch) | 409 Conflict if reviewed tags differ from stored; stays unconfirmed | `backend/routes/menuRoutes.test.js` | Passed |
+| `POST /api/menu/:itemId/confirm-allergens` (Auth & scoping) | 403 for kitchen; 401 without token; 404 for restaurant B or invalid id | `backend/routes/menuRoutes.test.js` | Passed |
+| `PATCH /api/menu/:itemId/availability` | 200 OK toggles available true/false for both owner and kitchen | `backend/routes/menuRoutes.test.js` | Passed |
+| `PATCH /api/menu/:itemId/availability` (Input & scoping) | 400 on non-boolean; 404 on restaurant B or invalid id; 401 without token | `backend/routes/menuRoutes.test.js` | Passed |
+| `DELETE /api/menu/:itemId` (No delete) | 404 Not Found; dish remains in database to protect order integrity | `backend/routes/menuRoutes.test.js` | Passed |
+| Safety core integration (`buildEligiblePool`) | Unconfirmed dishes excluded for allergic diners; included after confirmation | `backend/routes/menuRoutes.test.js` | Passed |
+
+## Seed Dataset & Database Seeder Engine Test Checklist
+
+| Feature / Scenario | Expected Result | Test File | Status |
+| :--- | :--- | :--- | :--- |
+| Static dataset integrity (`menu.json`) | Array of exactly 24 dishes with unique case-insensitive names | `backend/data/seed.test.js` | Passed |
+| Mongoose validation (`menu.json`) | All 24 dishes pass MenuItem schema validation; correct fields & types | `backend/data/seed.test.js` | Passed |
+| Taxonomy & course coverage | All 10 allergens used, >=4 allergen-free, >=6 veg, >=6 non-veg, all courses represented | `backend/data/seed.test.js` | Passed |
+| Vegetarian consistency | No isVeg dish carries fish/shellfish allergens or meat/seafood keywords | `backend/data/seed.test.js` | Passed |
+| Ingredient keyword safety net | 10 allergen keyword checks verify every dish declaring ingredients carries tags | `backend/data/seed.test.js` | Passed |
+| `assertSeedAllowed` guards | Allows development; throws for "test", ending with `_test`, empty, or production | `backend/data/seed.test.js` | Passed |
+| Idempotent seeding (`seedDatabase`) | Creates restaurant, owner, kitchen, tables 1-6 (32-hex tokens), and 24 items | `backend/data/seed.test.js` | Passed |
+| Seeder re-run safety | 2nd run creates 0 entities, preserves table tokens and owner passwordHash | `backend/data/seed.test.js` | Passed |
+| Seeded credential authentication | Seeded owner logs in with seed password through POST /api/auth/login; 401 on wrong | `backend/data/seed.test.js` | Passed |
+| Password length validation | Rejects missing, <8 characters, or >72 bytes passwords in `seedDatabase` | `backend/data/seed.test.js` | Passed |
+| Public menu access for seeded data | `GET /api/menu/:restaurantId` returns all 24 seeded dishes | `backend/data/seed.test.js` | Passed |
+| Safety core with seeded items | Allergic guest gets safe pool; 10-allergy guest gets allergen-free; non-allergic gets 24 | `backend/data/seed.test.js` | Passed |
+
 ## Known gaps
 
 | Gap | Closed by | Proven by | Status |
@@ -122,3 +166,7 @@ All automated tests adhere to project testing rules:
 | Unique open-session index is declared but not proven against the real database | session task | pending | open |
 | Frontend allergen list must match KNOWN_ALLERGENS exactly | frontend foundation task | pending | open |
 | npm audit: review production dependencies before submission | final review | pending | open |
+| Public menu returns raw allergen tags: guest screens must use the server-computed safe flag from the session menu and never compute safety in the client | session task and frontend tasks | pending | open |
+| Menu item names are not unique per restaurant (needs a unique index, which is a model change) | hardening task | pending | open |
+| Seeded demo accounts must never exist in a deployed database (seed already refuses production) | final review | assertSeedAllowed tests now | half closed |
+| Demo menu allergen tags are checked by keyword rules and a manual skim, not by a food safety professional | final review (owner skims; the report states the limitation) | pending | open |
