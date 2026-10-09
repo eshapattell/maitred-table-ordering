@@ -7,6 +7,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 
 import connectDB from './config/db.js';
+import authRoutes from './routes/authRoutes.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 
 // Load environment variables from .env
@@ -38,6 +39,9 @@ app.use(express.json());
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok', app: 'maitred' });
 });
+
+// Routes
+app.use('/api/auth', authRoutes);
 
 // 404 and central error handling middleware
 app.use(notFound);
