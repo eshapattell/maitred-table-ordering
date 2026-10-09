@@ -26,7 +26,7 @@ export const protect = async (req, res, next) => {
   }
 
   // Reject invalid MongoDB ObjectId subjects immediately without database querying
-  if (!payload || !payload.sub || !mongoose.isValidObjectId(payload.sub)) {
+  if (!payload || !payload.sub || !mongoose.isObjectIdOrHexString(payload.sub)) {
     return res.status(401).json({ message: 'Not authorised' });
   }
 
