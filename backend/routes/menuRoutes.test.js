@@ -1,6 +1,7 @@
 // menuRoutes.test.js: Automated tests for menu routes and safety integration
 import request from 'supertest';
 import mongoose from 'mongoose';
+import { jest } from '@jest/globals';
 import { app } from '../server.js';
 import { connectTestDb, clearTestDb, disconnectTestDb } from '../config/testDb.js';
 import { createFixtures } from '../config/testFixtures.js';
@@ -792,4 +793,337 @@ describe('Menu Routes (/api/menu)', () => {
       expect(poolNoAllergiesAfter.find((i) => String(i._id) === createdItem.id)).toBeDefined();
     });
   });
+
+  describe('Task 6b: Missing Confirm and Edit Tests', () => {
+    test('1. Empty tag list: confirm with [] gives 200 and allergensConfirmed true; second confirm stays true', async () => {
+      const resCreate = await request(app)
+        .post('/api/menu')
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`)
+        .send({
+          ...validDish,
+          name: 'Task6b Empty Allergens Dish',
+          allergens: [],
+        });
+      expect(resCreate.status).toBe(201);
+      const dishId = resCreate.body.item.id;
+
+      // Confirm with { allergens: [] } -> 200 and true
+      const resConf1 = await request(app)
+        .post(`/api/menu/${dishId}/confirm-allergens`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`)
+        .send({ allergens: [] });
+      expect(resConf1.status).toBe(200);
+      expect(resConf1.body.item.allergensConfirmed).toBe(true);
+
+      // Confirming it again also gives 200 and it stays true
+      const resConf2 = await request(app)
+        .post(`/api/menu/${dishId}/confirm-allergens`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`)
+        .send({ allergens: [] });
+      expect(resConf2.status).toBe(200);
+      expect(resConf2.body.item.allergensConfirmed).toBe(true);
+
+      // Read back through GET /api/menu so assertions use real stored state
+      const resGet = await request(app)
+        .get('/api/menu')
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+      const item = resGet.body.items.find((i) => i.id === dishId);
+      expect(item.allergensConfirmed).toBe(true);
+      expect(item.allergens).toEqual([]);
+    });
+
+    test('2. Order and case: confirm with varied casing and order gives 200 and allergensConfirmed true', async () => {
+      const resCreate = await request(app)
+        .post('/api/menu')
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`)
+        .send({
+          ...validDish,
+          name: 'Task6b Order Case Dish',
+          allergens: ['soy', 'dairy', 'peanut'],
+        });
+      expect(resCreate.status).toBe(201);
+      const dishId = resCreate.body.item.id;
+
+      const resConf = await request(app)
+        .post(`/api/menu/${dishId}/confirm-allergens`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`)
+        .send({ allergens: [' PEANUT ', 'Dairy', 'soy'] });
+      expect(resConf.status).toBe(200);
+      expect(resConf.body.item.allergensConfirmed).toBe(true);
+
+      // Read back through GET /api/menu
+      const resGet = await request(app)
+        .get('/api/menu')
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+      const item = resGet.body.items.find((i) => i.id === dishId);
+      expect(item.allergensConfirmed).toBe(true);
+      expect(item.allergens).toEqual(['dairy', 'peanut', 'soy']);
+    });
+
+    test('3. Stale review screen: allergen edit resets confirmation, old list yields 409, new list confirms', async () => {
+      const resCreate = await request(app)
+        .post('/api/menu')
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`)
+        .send({
+          ...validDish,
+          name: 'Task6b Stale Review Dish',
+          allergens: ['dairy'],
+        });
+      expect(resCreate.status).toBe(201);
+      const dishId = resCreate.body.item.id;
+
+      const resConf1 = await request(app)
+        .post(`/api/menu/${dishId}/confirm-allergens`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`)
+        .send({ allergens: ['dairy'] });
+      expect(resConf1.status).toBe(200);
+      expect(resConf1.body.item.allergensConfirmed).toBe(true);
+
+      // PATCH its allergens to ["dairy", "egg"]
+      const resPatch = await request(app)
+        .patch(`/api/menu/${dishId}`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`)
+        .send({ allergens: ['dairy', 'egg'] });
+      expect(resPatch.status).toBe(200);
+      expect(resPatch.body.item.allergensConfirmed).toBe(false);
+
+      // Fresh GET also shows allergensConfirmed false
+      const resGet1 = await request(app)
+        .get('/api/menu')
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+      const itemAfterPatch = resGet1.body.items.find((i) => i.id === dishId);
+      expect(itemAfterPatch.allergensConfirmed).toBe(false);
+
+      // Confirm with the OLD list ["dairy"] -> 409
+      const resStaleConf = await request(app)
+        .post(`/api/menu/${dishId}/confirm-allergens`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`)
+        .send({ allergens: ['dairy'] });
+      expect(resStaleConf.status).toBe(409);
+      expect(resStaleConf.body.message).toBe('Allergens changed since you reviewed them');
+
+      // Fresh GET verifies item is still unconfirmed
+      const resGet2 = await request(app)
+        .get('/api/menu')
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+      const itemStillUnconfirmed = resGet2.body.items.find((i) => i.id === dishId);
+      expect(itemStillUnconfirmed.allergensConfirmed).toBe(false);
+
+      // Confirm with ["dairy", "egg"] -> 200 and confirmed true
+      const resNewConf = await request(app)
+        .post(`/api/menu/${dishId}/confirm-allergens`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`)
+        .send({ allergens: ['dairy', 'egg'] });
+      expect(resNewConf.status).toBe(200);
+      expect(resNewConf.body.item.allergensConfirmed).toBe(true);
+
+      // Fresh GET confirms it is true
+      const resGet3 = await request(app)
+        .get('/api/menu')
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+      const itemFinallyConfirmed = resGet3.body.items.find((i) => i.id === dishId);
+      expect(itemFinallyConfirmed.allergensConfirmed).toBe(true);
+    });
+
+    test('4. Price edit keeps the confirmation: all fields preserved except price; changing allergens resets it', async () => {
+      const resCreate = await request(app)
+        .post('/api/menu')
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`)
+        .send({
+          ...validDish,
+          name: 'Task6b Price Edit Confirmed Dish',
+          allergens: ['dairy', 'egg'],
+        });
+      expect(resCreate.status).toBe(201);
+      const dishId = resCreate.body.item.id;
+
+      await request(app)
+        .post(`/api/menu/${dishId}/confirm-allergens`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`)
+        .send({ allergens: ['dairy', 'egg'] });
+
+      // Read current confirmed state via GET /api/menu
+      const resGet1 = await request(app)
+        .get('/api/menu')
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+      const previousItem = resGet1.body.items.find((i) => i.id === dishId);
+      expect(previousItem.allergensConfirmed).toBe(true);
+
+      // PATCH with same allergens in any order plus a new price
+      const newPrice = previousItem.price + 150;
+      const resPatch1 = await request(app)
+        .patch(`/api/menu/${dishId}`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`)
+        .send({ allergens: ['egg', 'dairy'], price: newPrice });
+      expect(resPatch1.status).toBe(200);
+      expect(resPatch1.body.item.allergensConfirmed).toBe(true);
+
+      // Read back via GET /api/menu and assert every field equals previous value except price
+      const resGet2 = await request(app)
+        .get('/api/menu')
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+      const itemAfterPriceEdit = resGet2.body.items.find((i) => i.id === dishId);
+      expect(itemAfterPriceEdit.allergensConfirmed).toBe(true);
+      expect(itemAfterPriceEdit.price).toBe(newPrice);
+
+      for (const field of Object.keys(previousItem)) {
+        if (field === 'price') {
+          expect(itemAfterPriceEdit.price).not.toBe(previousItem.price);
+        } else {
+          expect(itemAfterPriceEdit[field]).toEqual(previousItem[field]);
+        }
+      }
+
+      // Then PATCH with a different allergen list ["dairy"]
+      const resPatch2 = await request(app)
+        .patch(`/api/menu/${dishId}`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`)
+        .send({ allergens: ['dairy'] });
+      expect(resPatch2.status).toBe(200);
+      expect(resPatch2.body.item.allergensConfirmed).toBe(false);
+      expect(resPatch2.body.item.allergens).toEqual(['dairy']);
+
+      const resGet3 = await request(app)
+        .get('/api/menu')
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+      const finalItem = resGet3.body.items.find((i) => i.id === dishId);
+      expect(finalItem.allergensConfirmed).toBe(false);
+      expect(finalItem.allergens).toEqual(['dairy']);
+    });
+
+    test('5. Edit does not rewrite unchanged tags: preserves exact unsorted database array order', async () => {
+      const rawItem = await MenuItem.create({
+        ...validDish,
+        name: 'Task6b Unsorted Raw Array Dish',
+        restaurantId: fixtures.restaurantA._id,
+        allergens: ['soy', 'dairy'], // deliberately unsorted
+        allergensConfirmed: true,
+      });
+
+      const resPatch = await request(app)
+        .patch(`/api/menu/${rawItem._id}`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`)
+        .send({ allergens: ['dairy', 'soy'], price: 920 });
+
+      expect(resPatch.status).toBe(200);
+      expect(resPatch.body.item.allergensConfirmed).toBe(true);
+
+      // Stored allergens read straight from database are still ["soy", "dairy"] in exact order
+      const stored = await MenuItem.findById(rawItem._id).lean();
+      expect(stored.allergensConfirmed).toBe(true);
+      expect(stored.allergens).toEqual(['soy', 'dairy']);
+      expect(stored.price).toBe(920);
+    });
+
+    test('6. Database exact array matching behavior for confirm route (direct MenuItem calls, no HTTP)', async () => {
+      // (a) dish stored with allergens []
+      const dishA = await MenuItem.create({
+        ...validDish,
+        name: 'Direct DB Test Dish A',
+        restaurantId: fixtures.restaurantA._id,
+        allergens: [],
+        allergensConfirmed: false,
+      });
+      const resA = await MenuItem.updateOne(
+        { _id: dishA._id, allergens: [] },
+        { $set: { allergensConfirmed: true } }
+      );
+      expect(resA.matchedCount).toBe(1);
+
+      // (b) dish stored with ["dairy"], changed directly to ["dairy", "egg"]
+      const dishB = await MenuItem.create({
+        ...validDish,
+        name: 'Direct DB Test Dish B',
+        restaurantId: fixtures.restaurantA._id,
+        allergens: ['dairy'],
+        allergensConfirmed: false,
+      });
+      await MenuItem.updateOne(
+        { _id: dishB._id },
+        { $set: { allergens: ['dairy', 'egg'] } }
+      );
+      // Old filter allergens ["dairy"] has matchedCount 0 and dish stays unconfirmed
+      const resB1 = await MenuItem.updateOne(
+        { _id: dishB._id, allergens: ['dairy'] },
+        { $set: { allergensConfirmed: true } }
+      );
+      expect(resB1.matchedCount).toBe(0);
+      const readB = await MenuItem.findById(dishB._id).lean();
+      expect(readB.allergensConfirmed).toBe(false);
+
+      // Filter with ["dairy", "egg"] has matchedCount 1
+      const resB2 = await MenuItem.updateOne(
+        { _id: dishB._id, allergens: ['dairy', 'egg'] },
+        { $set: { allergensConfirmed: true } }
+      );
+      expect(resB2.matchedCount).toBe(1);
+
+      // (c) unsorted dish ["soy", "dairy"]
+      const dishC = await MenuItem.create({
+        ...validDish,
+        name: 'Direct DB Test Dish C',
+        restaurantId: fixtures.restaurantA._id,
+        allergens: ['soy', 'dairy'],
+        allergensConfirmed: false,
+      });
+      // Filter with ["dairy", "soy"] has matchedCount 0
+      const resC1 = await MenuItem.updateOne(
+        { _id: dishC._id, allergens: ['dairy', 'soy'] },
+        { $set: { allergensConfirmed: true } }
+      );
+      expect(resC1.matchedCount).toBe(0);
+
+      // Filter with ["soy", "dairy"] has matchedCount 1
+      const resC2 = await MenuItem.updateOne(
+        { _id: dishC._id, allergens: ['soy', 'dairy'] },
+        { $set: { allergensConfirmed: true } }
+      );
+      expect(resC2.matchedCount).toBe(1);
+    });
+
+    test('7. Simulated concurrent edit covers matchedCount 0 branch of confirm route', async () => {
+      const resCreate = await request(app)
+        .post('/api/menu')
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`)
+        .send({
+          ...validDish,
+          name: 'Concurrent Edit Race Dish',
+          allergens: ['dairy'],
+        });
+      expect(resCreate.status).toBe(201);
+      const dishId = resCreate.body.item.id;
+
+      // Read it with MenuItem.findById(id).lean() into stale
+      const stale = await MenuItem.findById(dishId).lean();
+
+      // Change stored allergens directly to ["dairy", "egg"]
+      await MenuItem.updateOne(
+        { _id: dishId },
+        { $set: { allergens: ['dairy', 'egg'] } }
+      );
+
+      // Mock MenuItem.findOne to return the stale document for the confirm route's first read
+      const spy = jest
+        .spyOn(MenuItem, 'findOne')
+        .mockReturnValueOnce({ lean: async () => stale });
+
+      try {
+        const resConf = await request(app)
+          .post(`/api/menu/${dishId}/confirm-allergens`)
+          .set('Authorization', `Bearer ${fixtures.ownerAToken}`)
+          .send({ allergens: ['dairy'] });
+
+        expect(resConf.status).toBe(409);
+        expect(resConf.body.message).toBe('Allergens changed since you reviewed them');
+
+        // Real read afterwards shows allergens ["dairy", "egg"] with allergensConfirmed false
+        const realRead = await MenuItem.findById(dishId).lean();
+        expect(realRead.allergens).toEqual(['dairy', 'egg']);
+        expect(realRead.allergensConfirmed).toBe(false);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
 });
+

@@ -134,6 +134,13 @@ All automated tests adhere to project testing rules:
 | `PATCH /api/menu/:itemId/availability` (Input & scoping) | 400 on non-boolean; 404 on restaurant B or invalid id; 401 without token | `backend/routes/menuRoutes.test.js` | Passed |
 | `DELETE /api/menu/:itemId` (No delete) | 404 Not Found; dish remains in database to protect order integrity | `backend/routes/menuRoutes.test.js` | Passed |
 | Safety core integration (`buildEligiblePool`) | Unconfirmed dishes excluded for allergic diners; included after confirmation | `backend/routes/menuRoutes.test.js` | Passed |
+| `confirm-allergens` (Empty tag list) | Confirm with `[]` gives 200 and allergensConfirmed true; repeated confirm stays true | `backend/routes/menuRoutes.test.js` | Passed |
+| `confirm-allergens` (Order and casing) | Dish with `["soy","dairy","peanut"]` confirmed with `[" PEANUT ","Dairy","soy"]` -> 200, true | `backend/routes/menuRoutes.test.js` | Passed |
+| `confirm-allergens` (Stale review screen) | Allergen edit invalidates confirmation; old list gives 409; new list confirms | `backend/routes/menuRoutes.test.js` | Passed |
+| `PATCH /api/menu/:itemId` (Price edit confirmation) | Confirmed dish price edit keeps true and preserves fields; allergen edit resets | `backend/routes/menuRoutes.test.js` | Passed |
+| `PATCH /api/menu/:itemId` (Tag immutability) | Unsorted raw array in DB preserved when same tags re-sent in edit | `backend/routes/menuRoutes.test.js` | Passed |
+| DB exact array matching (direct calls) | Matches exact array order for [], changed tags give matchedCount 0 / 1 | `backend/routes/menuRoutes.test.js` | Passed |
+| Simulated concurrent edit | Conditional update catches matchedCount 0 race condition, answers 409 | `backend/routes/menuRoutes.test.js` | Passed |
 
 ## Seed Dataset & Database Seeder Engine Test Checklist
 
