@@ -149,6 +149,14 @@ describe('Seed Dataset & Seeder Engine', () => {
       }
     });
 
+    test('egg consistency: every dish whose allergens include "egg" has isVeg false', () => {
+      for (const dish of rawMenu) {
+        if (dish.allergens.includes('egg')) {
+          expect(dish.isVeg).toBe(false);
+        }
+      }
+    });
+
     describe('Ingredient safety net checks', () => {
       const rules = [
         {
@@ -166,8 +174,13 @@ describe('Seed Dataset & Seeder Engine', () => {
         },
         {
           allergen: 'egg',
-          keywords: ['egg', 'eggs', 'mayonnaise', 'mayo', 'aioli', 'meringue', 'custard'],
-          exceptions: [],
+          keywords: [
+            'egg', 'eggs', 'mayonnaise', 'mayo', 'aioli', 'meringue', 'custard',
+            'mousse', 'fettuccine', 'tagliatelle', 'pappardelle',
+          ],
+          exceptions: [
+            'eggless mousse', 'egg-free mousse', 'egg-free', 'eggless',
+          ],
         },
         {
           allergen: 'gluten',
@@ -177,8 +190,10 @@ describe('Seed Dataset & Seeder Engine', () => {
             'breadcrumb', 'breadcrumbs', 'pastry', 'biscuit', 'cake', 'barley',
             'rye', 'tortilla', 'pizza', 'maida', 'panko', 'croissant',
             'brioche', 'focaccia', 'gnocchi', 'ravioli', 'tempura',
+            'soy sauce', 'teriyaki', 'fettuccine', 'tagliatelle', 'pappardelle',
           ],
           exceptions: [
+            'gluten-free soy sauce', 'tamari soy sauce', 'tamari',
             'rice flour', 'chickpea flour', 'gram flour', 'besan', 'almond flour',
             'corn flour', 'cornflour', 'buckwheat flour', 'tapioca flour',
             'coconut flour', 'potato flour',
@@ -201,8 +216,11 @@ describe('Seed Dataset & Seeder Engine', () => {
         },
         {
           allergen: 'soy',
-          keywords: ['soy', 'soya', 'tofu', 'edamame', 'miso', 'tempeh', 'teriyaki'],
-          exceptions: [],
+          keywords: [
+            'soy', 'soya', 'tofu', 'edamame', 'miso', 'tempeh', 'teriyaki',
+            'lecithin',
+          ],
+          exceptions: ['sunflower lecithin'],
         },
         {
           allergen: 'fish',
@@ -237,7 +255,8 @@ describe('Seed Dataset & Seeder Engine', () => {
       test.each(rules)('ingredient check for %s', ({ allergen, keywords, exceptions }) => {
         for (const dish of rawMenu) {
           let text = `${dish.name} ${dish.description}`.toLowerCase();
-          for (const exc of exceptions) {
+          const sortedExceptions = [...exceptions].sort((a, b) => b.length - a.length);
+          for (const exc of sortedExceptions) {
             text = text.replace(new RegExp(`\\b${exc}\\b`, 'gi'), ' ');
           }
           for (const kw of keywords) {
@@ -247,6 +266,79 @@ describe('Seed Dataset & Seeder Engine', () => {
             }
           }
         }
+      });
+
+      describe('Ingredient rule unit tests (made-up dishes)', () => {
+        function getRequiredAllergens(dish) {
+          const required = [];
+          for (const rule of rules) {
+            let text = `${dish.name} ${dish.description}`.toLowerCase();
+            const sortedExceptions = [...rule.exceptions].sort((a, b) => b.length - a.length);
+            for (const exc of sortedExceptions) {
+              text = text.replace(new RegExp(`\\b${exc}\\b`, 'gi'), ' ');
+            }
+            for (const kw of rule.keywords) {
+              const regex = new RegExp(`\\b${kw}\\b`, 'i');
+              if (regex.test(text)) {
+                required.push(rule.allergen);
+                break;
+              }
+            }
+          }
+          return required;
+        }
+
+        test('a dish with "glazed with tamari soy sauce" needs only soy', () => {
+          const required = getRequiredAllergens({
+            name: 'Test Dish',
+            description: 'glazed with tamari soy sauce',
+          });
+          expect(required).toEqual(['soy']);
+        });
+
+        test('"gluten-free soy sauce" needs only soy', () => {
+          const required = getRequiredAllergens({
+            name: 'Test Dish',
+            description: 'glazed with gluten-free soy sauce',
+          });
+          expect(required).toEqual(['soy']);
+        });
+
+        test('"sunflower lecithin" needs nothing', () => {
+          const required = getRequiredAllergens({
+            name: 'Test Dish',
+            description: 'crafted with sunflower lecithin',
+          });
+          expect(required).toEqual([]);
+        });
+
+        test('"egg-free mousse of berries" needs nothing', () => {
+          const required = getRequiredAllergens({
+            name: 'Test Dish',
+            description: 'egg-free mousse of berries',
+          });
+          expect(required).toEqual([]);
+        });
+
+        test('"soy sauce" without a gluten tag is flagged', () => {
+          const dish = {
+            name: 'Test Dish',
+            description: 'simmered with dark soy sauce',
+            allergens: ['soy'],
+          };
+          const missing = getRequiredAllergens(dish).filter((a) => !dish.allergens.includes(a));
+          expect(missing).toContain('gluten');
+        });
+
+        test('"dark chocolate with soy lecithin" without a soy tag is flagged', () => {
+          const dish = {
+            name: 'Test Dish',
+            description: 'dark chocolate with soy lecithin',
+            allergens: ['dairy'],
+          };
+          const missing = getRequiredAllergens(dish).filter((a) => !dish.allergens.includes(a));
+          expect(missing).toContain('soy');
+        });
       });
     });
 

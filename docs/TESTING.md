@@ -150,7 +150,9 @@ All automated tests adhere to project testing rules:
 | Mongoose validation (`menu.json`) | All 24 dishes pass MenuItem schema validation; correct fields & types | `backend/data/seed.test.js` | Passed |
 | Taxonomy & course coverage | All 10 allergens used, >=4 allergen-free, >=6 veg, >=6 non-veg, all courses represented | `backend/data/seed.test.js` | Passed |
 | Vegetarian consistency | No isVeg dish carries fish/shellfish allergens or meat/seafood keywords | `backend/data/seed.test.js` | Passed |
-| Ingredient keyword safety net | 10 allergen keyword checks verify every dish declaring ingredients carries tags | `backend/data/seed.test.js` | Passed |
+| Egg allergen consistency | Every dish whose allergens include "egg" has isVeg false | `backend/data/seed.test.js` | Passed |
+| Strengthened ingredient safety net | 10 allergen checks with soy sauce, pasta shapes, lecithin, mousse & longest exception stripping | `backend/data/seed.test.js` | Passed |
+| Ingredient rule unit tests | Verified tamari, gluten-free soy sauce, sunflower lecithin, egg-free mousse, and flagging | `backend/data/seed.test.js` | Passed |
 | `assertSeedAllowed` guards | Allows development; throws for "test", ending with `_test`, empty, or production | `backend/data/seed.test.js` | Passed |
 | Idempotent seeding (`seedDatabase`) | Creates restaurant, owner, kitchen, tables 1-6 (32-hex tokens), and 24 items | `backend/data/seed.test.js` | Passed |
 | Seeder re-run safety | 2nd run creates 0 entities, preserves table tokens and owner passwordHash | `backend/data/seed.test.js` | Passed |
