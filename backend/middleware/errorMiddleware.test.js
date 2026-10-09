@@ -202,15 +202,62 @@ describe('errorMiddleware', () => {
     expect(res.json).toHaveBeenCalledWith({ message: 'Payload too large' });
   });
 
-  test('for a parse error carrying request body on err.body and err.message, no console.error arg contains sensitive body', () => {
-    const sensitiveBody = '{"password":"hunter2"}';
-    const parseErr = new SyntaxError(`Unexpected token 'p', "${sensitiveBody}" is not valid JSON`);
+  test('a 404 (notFound), a parse error (400) and a 413 produce NO console.error call', () => {
+    // 1. 404 via notFound followed by errorHandler
+    const notFoundReq = { originalUrl: '/api/nonexistent' };
+    let notFoundErr;
+    const notFoundRes = {
+      statusCode: 200,
+      status: jest.fn(function (code) {
+        this.statusCode = code;
+        return this;
+      }),
+      json: jest.fn(),
+    };
+    notFound(notFoundReq, notFoundRes, (err) => {
+      notFoundErr = err;
+    });
+    expect(notFoundRes.statusCode).toBe(404);
+    errorHandler(notFoundErr, notFoundReq, notFoundRes, jest.fn());
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
+
+    // 2. Parse error (400)
+    const parseErr = new SyntaxError('Unexpected token');
     parseErr.type = 'entity.parse.failed';
     parseErr.status = 400;
-    parseErr.body = sensitiveBody;
+    const res400 = {
+      statusCode: 200,
+      status: jest.fn(function (code) {
+        this.statusCode = code;
+        return this;
+      }),
+      json: jest.fn(),
+    };
+    errorHandler(parseErr, {}, res400, jest.fn());
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
+
+    // 3. Payload too large (413)
+    const largeErr = new Error('request entity too large');
+    largeErr.type = 'entity.too.large';
+    largeErr.status = 413;
+    const res413 = {
+      statusCode: 200,
+      status: jest.fn(function (code) {
+        this.statusCode = code;
+        return this;
+      }),
+      json: jest.fn(),
+    };
+    errorHandler(largeErr, {}, res413, jest.fn());
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
+  });
+
+  test('a 500 produces exactly one console.error call with "[maitred]" and message only; err.body "hunter2" is never leaked', () => {
+    const sensitiveErr = new Error('Database query failure');
+    sensitiveErr.body = '{"password":"hunter2"}';
 
     const res = {
-      statusCode: 200,
+      statusCode: 500,
       status: jest.fn(function (code) {
         this.statusCode = code;
         return this;
@@ -219,15 +266,54 @@ describe('errorMiddleware', () => {
     };
     const next = jest.fn();
 
-    errorHandler(parseErr, {}, res, next);
+    errorHandler(sensitiveErr, {}, res, next);
 
-    expect(consoleErrorSpy).toHaveBeenCalled();
+    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+    expect(consoleErrorSpy).toHaveBeenCalledWith('[maitred]', 'Database query failure');
     for (const callArgs of consoleErrorSpy.mock.calls) {
       for (const arg of callArgs) {
         expect(String(arg)).not.toContain('hunter2');
       }
     }
-    // Verify it logged the safe fixed label and message
-    expect(consoleErrorSpy).toHaveBeenCalledWith('[maitred]', 'invalid JSON body');
+  });
+
+  test('an error with no err.status: res.statusCode 201 answers 500, 302 answers 500, and 404 answers 404', () => {
+    const err = new Error('Unhandled exception');
+
+    // res.statusCode = 201 (success) -> must answer 500
+    const res201 = {
+      statusCode: 201,
+      status: jest.fn(function (code) {
+        this.statusCode = code;
+        return this;
+      }),
+      json: jest.fn(),
+    };
+    errorHandler(err, {}, res201, jest.fn());
+    expect(res201.status).toHaveBeenCalledWith(500);
+
+    // res.statusCode = 302 (redirect) -> must answer 500
+    const res302 = {
+      statusCode: 302,
+      status: jest.fn(function (code) {
+        this.statusCode = code;
+        return this;
+      }),
+      json: jest.fn(),
+    };
+    errorHandler(err, {}, res302, jest.fn());
+    expect(res302.status).toHaveBeenCalledWith(500);
+
+    // res.statusCode = 404 (client error) -> must answer 404
+    const res404 = {
+      statusCode: 404,
+      status: jest.fn(function (code) {
+        this.statusCode = code;
+        return this;
+      }),
+      json: jest.fn(),
+    };
+    errorHandler(err, {}, res404, jest.fn());
+    expect(res404.status).toHaveBeenCalledWith(404);
   });
 });

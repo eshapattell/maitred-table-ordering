@@ -22,7 +22,8 @@ export const errorHandler = (err, req, res, next) => {
 
   // Determine HTTP status code:
   // Check if err.status or err.statusCode is an integer in the 400-599 range (e.g. body-parser errors);
-  // Otherwise use res.statusCode if not 200; otherwise fall back to 500.
+  // Otherwise use res.statusCode only when it is 400 or more;
+  // If res.statusCode is below 400 (200, 201, 3xx), use 500 because an error must never be sent with a success status.
   const rawStatus = Number.isInteger(err?.status)
     ? err.status
     : (Number.isInteger(err?.statusCode) ? err.statusCode : null);
@@ -34,18 +35,21 @@ export const errorHandler = (err, req, res, next) => {
     statusCode = 413;
   } else if (rawStatus !== null && rawStatus >= 400 && rawStatus <= 599) {
     statusCode = rawStatus;
-  } else if (res.statusCode && res.statusCode !== 200) {
+  } else if (res.statusCode && res.statusCode >= 400) {
     statusCode = res.statusCode;
   } else {
+    // An error must never be sent with a success status (200, 201, 3xx)
     statusCode = 500;
   }
 
-  // Safe logging: log fixed label plus err.message only.
-  // For parse failures, log only the fixed string "invalid JSON body" so raw payload fragments are never logged.
-  const logMessage = err?.type === 'entity.parse.failed'
-    ? 'invalid JSON body'
-    : (err?.message || '');
-  console.error('[maitred]', logMessage);
+  // Log with console.error only when the final status is 500 or more.
+  // For statuses below 500 (404 from notFound, 400 for bad JSON, 413, etc.), log nothing:
+  // they are expected client mistakes, and their URLs can contain QR tokens.
+  // For 500 and above, log console.error("[maitred]", err.message) and nothing else
+  // (never the error object, request bodies, headers or tokens).
+  if (statusCode >= 500) {
+    console.error('[maitred]', err?.message || '');
+  }
 
   // Determine response message
   let message;

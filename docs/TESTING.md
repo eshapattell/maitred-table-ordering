@@ -18,9 +18,11 @@ All automated tests adhere to project testing rules:
 | `errorHandler` (headersSent) | Delegates to `next(err)` and writes nothing to response | `backend/middleware/errorMiddleware.test.js` | Passed |
 | `errorHandler` (4xx preservation) | Retains `err.message` for status < 500 outside development | `backend/middleware/errorMiddleware.test.js` | Passed |
 | `errorHandler` (status ranges) | Respects `err.status` / `err.statusCode` between 400 and 599 | `backend/middleware/errorMiddleware.test.js` | Passed |
+| `errorHandler` (fallback status) | Uses `res.statusCode` only when >= 400; below 400 (201, 302) forces 500 | `backend/middleware/errorMiddleware.test.js` | Passed |
 | `errorHandler` (JSON parse error) | `entity.parse.failed` gives 400 `{ message: "Invalid JSON body" }` | `backend/middleware/errorMiddleware.test.js` | Passed |
 | `errorHandler` (Payload too large) | `entity.too.large` gives 413 `{ message: "Payload too large" }` | `backend/middleware/errorMiddleware.test.js` | Passed |
-| `errorHandler` (Safe logging) | Fixed label + err.message; "invalid JSON body" for parse errors; no body leakage | `backend/middleware/errorMiddleware.test.js` | Passed |
+| `errorHandler` (Quieter logging) | Statuses < 500 (404, 400, 413) produce NO `console.error` call | `backend/middleware/errorMiddleware.test.js` | Passed |
+| `errorHandler` (5xx safe logging) | 5xx produces 1 call with `[maitred]` + message; never leaks `err.body` (e.g. hunter2) | `backend/middleware/errorMiddleware.test.js` | Passed |
 | Body parser error handling | Malformed JSON: 400 "Invalid JSON body"; 200KB body: 413 "Payload too large"; {}: 400 | `backend/server.test.js` | Passed |
 
 ## Model Schema Validation Test Checklist
