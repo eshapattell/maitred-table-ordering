@@ -1,6 +1,7 @@
 // tableSessionIndex.test.js: Verifies TableSession partial unique index on the real test database
 import mongoose from 'mongoose';
 import TableSession from './TableSession.js';
+import { closeSession } from '../controllers/sessionController.js';
 import { connectTestDb, clearTestDb, disconnectTestDb } from '../config/testDb.js';
 
 describe('TableSession partial unique index on { tableId: 1 } where status: "open"', () => {
@@ -88,5 +89,140 @@ describe('TableSession partial unique index on { tableId: 1 } where status: "ope
     expect(fulfilled).toHaveLength(1);
     expect(rejected).toHaveLength(1);
     expect(rejected[0].reason.code).toBe(11000);
+  });
+
+  describe('TableSession partial unique index on { "participants.phone": 1 } and closeSession helper', () => {
+    test('two open sessions with the same phone: the second create rejects with code 11000 and a keyPattern containing "participants.phone"', async () => {
+      const phone = '+919824079988';
+      const restaurantId = new mongoose.Types.ObjectId();
+
+      await TableSession.create({
+        tableId: new mongoose.Types.ObjectId(),
+        restaurantId,
+        status: 'open',
+        participants: [{ id: 'p1', nickname: 'Alice', phone }],
+      });
+
+      let duplicateError;
+      try {
+        await TableSession.create({
+          tableId: new mongoose.Types.ObjectId(),
+          restaurantId,
+          status: 'open',
+          participants: [{ id: 'p2', nickname: 'Bob', phone }],
+        });
+      } catch (err) {
+        duplicateError = err;
+      }
+
+      expect(duplicateError).toBeDefined();
+      expect(duplicateError.code).toBe(11000);
+      expect(duplicateError.keyPattern).toBeDefined();
+      expect(duplicateError.keyPattern['participants.phone']).toBe(1);
+    });
+
+    test('the same phone in an open and a closed session is allowed', async () => {
+      const phone = '+919824079981';
+      const restaurantId = new mongoose.Types.ObjectId();
+
+      const closedSession = await TableSession.create({
+        tableId: new mongoose.Types.ObjectId(),
+        restaurantId,
+        status: 'closed',
+        participants: [{ id: 'p1', nickname: 'Alice', phone }],
+      });
+
+      const openSession = await TableSession.create({
+        tableId: new mongoose.Types.ObjectId(),
+        restaurantId,
+        status: 'open',
+        participants: [{ id: 'p2', nickname: 'Alice', phone }],
+      });
+
+      expect(closedSession.status).toBe('closed');
+      expect(openSession.status).toBe('open');
+    });
+
+    test('after closeSession (phones nulled) a new open session with that phone is allowed', async () => {
+      const phone = '+919824079982';
+      const restaurantId = new mongoose.Types.ObjectId();
+
+      const firstSession = await TableSession.create({
+        tableId: new mongoose.Types.ObjectId(),
+        restaurantId,
+        status: 'open',
+        participants: [{ id: 'p1', nickname: 'Alice', phone }],
+      });
+
+      const closed = await closeSession(firstSession._id, 'reset');
+      expect(closed).toBe(true);
+
+      const refreshed = await TableSession.findById(firstSession._id);
+      expect(refreshed.status).toBe('closed');
+      expect(refreshed.participants[0].phone).toBeNull();
+
+      const newOpenSession = await TableSession.create({
+        tableId: new mongoose.Types.ObjectId(),
+        restaurantId,
+        status: 'open',
+        participants: [{ id: 'p2', nickname: 'Alice', phone }],
+      });
+
+      expect(newOpenSession).toBeDefined();
+      expect(newOpenSession.status).toBe('open');
+    });
+
+    test('participants with a null phone in different open sessions are allowed', async () => {
+      const restaurantId = new mongoose.Types.ObjectId();
+
+      const session1 = await TableSession.create({
+        tableId: new mongoose.Types.ObjectId(),
+        restaurantId,
+        status: 'open',
+        participants: [{ id: 'p1', nickname: 'Alice', phone: null }],
+      });
+
+      const session2 = await TableSession.create({
+        tableId: new mongoose.Types.ObjectId(),
+        restaurantId,
+        status: 'open',
+        participants: [{ id: 'p2', nickname: 'Bob', phone: null }],
+      });
+
+      expect(session1.status).toBe('open');
+      expect(session2.status).toBe('open');
+    });
+
+    test('closeSession is safe to call twice (the second call returns false) and nulls every phone while keeping the nicknames', async () => {
+      const restaurantId = new mongoose.Types.ObjectId();
+      const phone1 = '+919824079983';
+      const phone2 = '+919824079984';
+
+      const session = await TableSession.create({
+        tableId: new mongoose.Types.ObjectId(),
+        restaurantId,
+        status: 'open',
+        participants: [
+          { id: 'p1', nickname: 'Ravi', phone: phone1, role: 'host', status: 'approved' },
+          { id: 'p2', nickname: 'Priya', phone: phone2, role: 'guest', status: 'approved' },
+        ],
+      });
+
+      const firstClose = await closeSession(session._id, 'timeout');
+      expect(firstClose).toBe(true);
+
+      const secondClose = await closeSession(session._id, 'timeout');
+      expect(secondClose).toBe(false);
+
+      const refreshed = await TableSession.findById(session._id);
+      expect(refreshed.status).toBe('closed');
+      expect(refreshed.closedReason).toBe('timeout');
+      expect(refreshed.closedAt).toBeInstanceOf(Date);
+      expect(refreshed.participants).toHaveLength(2);
+      expect(refreshed.participants[0].phone).toBeNull();
+      expect(refreshed.participants[0].nickname).toBe('Ravi');
+      expect(refreshed.participants[1].phone).toBeNull();
+      expect(refreshed.participants[1].nickname).toBe('Priya');
+    });
   });
 });

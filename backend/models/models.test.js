@@ -379,5 +379,131 @@ describe('Mongoose Models Schema Validation', () => {
 
       expect(partialOpenIndex).toBeDefined();
     });
+
+    test('TableSession.schema.indexes() contains a unique index on participants.phone with partialFilterExpression on status "open" and string phone', () => {
+      const indexes = TableSession.schema.indexes();
+      const partialPhoneIndex = indexes.find(
+        ([fields, options]) =>
+          fields['participants.phone'] === 1 &&
+          options &&
+          options.unique === true &&
+          options.partialFilterExpression &&
+          options.partialFilterExpression.status === 'open' &&
+          options.partialFilterExpression['participants.phone'] &&
+          options.partialFilterExpression['participants.phone'].$type === 'string'
+      );
+
+      expect(partialPhoneIndex).toBeDefined();
+    });
+  });
+
+  describe('TableSession new field defaults and enum constraints (Task 9a)', () => {
+    test('TableSession and participant new fields have correct defaults', () => {
+      const session = new TableSession({
+        tableId: dummyObjectId(),
+        restaurantId: dummyObjectId(),
+        status: 'open',
+        participants: [
+          {
+            id: 'participant-uuid-1',
+            nickname: 'Aarav',
+          },
+        ],
+      });
+
+      expect(session.validateSync()).toBeUndefined();
+      expect(session.hostId).toBeNull();
+      expect(session.lastActivityAt).toBeInstanceOf(Date);
+      expect(session.closedAt).toBeNull();
+      expect(session.closedReason).toBeNull();
+
+      const p = session.participants[0];
+      expect(p.phone).toBeNull();
+      expect(p.phoneVerified).toBe(false);
+      expect(p.role).toBe('guest');
+      expect(p.status).toBe('pending');
+      expect(p.allergiesDeclared).toBe(false);
+      expect(p.joinedAt).toBeInstanceOf(Date);
+    });
+
+    test('participant.role rejects invalid values and accepts allowed enums', () => {
+      const invalidRoleSession = new TableSession({
+        tableId: dummyObjectId(),
+        restaurantId: dummyObjectId(),
+        participants: [
+          {
+            id: 'p1',
+            nickname: 'Bob',
+            role: 'superuser',
+          },
+        ],
+      });
+      const err = invalidRoleSession.validateSync();
+      expect(err).toBeDefined();
+      expect(err.errors['participants.0.role']).toBeDefined();
+
+      const hostSession = new TableSession({
+        tableId: dummyObjectId(),
+        restaurantId: dummyObjectId(),
+        participants: [
+          {
+            id: 'p1',
+            nickname: 'Bob',
+            role: 'host',
+          },
+        ],
+      });
+      expect(hostSession.validateSync()).toBeUndefined();
+    });
+
+    test('participant.status rejects invalid values and accepts allowed enums', () => {
+      const invalidStatusSession = new TableSession({
+        tableId: dummyObjectId(),
+        restaurantId: dummyObjectId(),
+        participants: [
+          {
+            id: 'p1',
+            nickname: 'Bob',
+            status: 'active',
+          },
+        ],
+      });
+      const err = invalidStatusSession.validateSync();
+      expect(err).toBeDefined();
+      expect(err.errors['participants.0.status']).toBeDefined();
+
+      const approvedSession = new TableSession({
+        tableId: dummyObjectId(),
+        restaurantId: dummyObjectId(),
+        participants: [
+          {
+            id: 'p1',
+            nickname: 'Bob',
+            status: 'approved',
+          },
+        ],
+      });
+      expect(approvedSession.validateSync()).toBeUndefined();
+    });
+
+    test('TableSession.closedReason rejects invalid values and accepts allowed enums', () => {
+      const invalidReasonSession = new TableSession({
+        tableId: dummyObjectId(),
+        restaurantId: dummyObjectId(),
+        closedReason: 'cancelled',
+      });
+      const err = invalidReasonSession.validateSync();
+      expect(err).toBeDefined();
+      expect(err.errors.closedReason).toBeDefined();
+
+      for (const validReason of ['reset', 'rejected', 'timeout', 'table-removed']) {
+        const validReasonSession = new TableSession({
+          tableId: dummyObjectId(),
+          restaurantId: dummyObjectId(),
+          closedReason: validReason,
+        });
+        expect(validReasonSession.validateSync()).toBeUndefined();
+      }
+    });
   });
 });

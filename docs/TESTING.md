@@ -179,22 +179,102 @@ All automated tests adhere to project testing rules:
 | Public menu access for seeded data | `GET /api/menu/:restaurantId` returns all 24 seeded dishes | `backend/data/seed.test.js` | Passed |
 | Safety core with seeded items | Allergic guest gets safe pool; 10-allergy guest gets allergen-free; non-allergic gets 24 | `backend/data/seed.test.js` | Passed |
 
+## Table Session Models & Indexes (Task 9a)
+
+| Feature / Scenario | Expected Result | Test File | Status |
+| :--- | :--- | :--- | :--- |
+| `TableSession` & `Participant` Field Defaults | hostId null, lastActivityAt Date, closedAt null, closedReason null, phone null, phoneVerified false, role 'guest', status 'pending', allergiesDeclared false, joinedAt Date | `backend/models/models.test.js` | Passed |
+| `participant.role` Enum Validation | Rejects non-allowed roles (e.g. 'superuser'); accepts 'host' and 'guest' | `backend/models/models.test.js` | Passed |
+| `participant.status` Enum Validation | Rejects non-allowed status (e.g. 'active'); accepts 'approved' and 'pending' | `backend/models/models.test.js` | Passed |
+| `TableSession.closedReason` Enum Validation | Rejects invalid reasons; accepts 'reset', 'rejected', 'timeout', 'table-removed' | `backend/models/models.test.js` | Passed |
+| Phone Partial Unique Index Schema Definition | Schema defines unique on `participants.phone` with partialFilterExpression `{ status: "open", "participants.phone": { $type: "string" } }` | `backend/models/models.test.js` | Passed |
+| Phone Multi-key Partial Unique Index Enforcement | Two open sessions with same phone: 2nd create rejects with code 11000 and keyPattern `participants.phone` | `backend/models/tableSessionIndex.test.js` | Passed |
+| Phone Index Open vs Closed Status Exemption | Same phone allowed across one open and one closed session, or multiple closed sessions | `backend/models/tableSessionIndex.test.js` | Passed |
+| Re-opening Session After `closeSession` | `closeSession` nulls phones; new open session with that phone succeeds | `backend/models/tableSessionIndex.test.js` | Passed |
+| Null Phone Multiple Open Sessions | Null phone entries across different open sessions are allowed (sparse multi-key) | `backend/models/tableSessionIndex.test.js` | Passed |
+| `closeSession` Idempotency & Data Minimization | Safe to call twice (2nd returns false); sets closedReason, closedAt, and nulls every phone while keeping nicknames | `backend/models/tableSessionIndex.test.js` | Passed |
+| `closeOrphanSessions` Deletion Cleanup | Sets closedReason "table-removed", closedAt Date, and nulls every phone | `backend/routes/tableRoutes.test.js` | Passed |
+
+## Guest Token Generation & Audience Isolation (Task 9a)
+
+| Feature / Scenario | Expected Result | Test File | Status |
+| :--- | :--- | :--- | :--- |
+| `generateGuestToken` & `verifyGuestToken` Round-trip | Signs and decodes sub (participantId), sid (sessionId), aud "maitred-guest", 8h expiry | `backend/utils/generateToken.test.js` | Passed |
+| Audience Isolation: Staff Token Rejection | Staff token without audience fails `verifyGuestToken` | `backend/utils/generateToken.test.js` | Passed |
+| Audience Isolation: Guest Token Rejection | Guest token with audience fails `verifyToken` with plain Error "Staff token cannot contain audience claim" | `backend/utils/generateToken.test.js` | Passed |
+| Expired / Tampered / Wrong Secret / None Alg | Guest token verification rejects expired, tampered payload, different secret, and alg "none" | `backend/utils/generateToken.test.js` | Passed |
+| Invalid `JWT_SECRET` Error Code | Throws Error with `.code = 'JWT_SECRET_INVALID'` without leaking secret value | `backend/utils/generateToken.test.js` | Passed |
+
+## Session Middleware & Lifecycle Guards (Task 9a)
+
+| Feature / Scenario | Expected Result | Test File | Status |
+| :--- | :--- | :--- | :--- |
+| `guestAuth` Missing/Malformed Header | Returns 401 `{ message: "Not authorised", code: "INVALID_TOKEN" }` | `backend/middleware/sessionMiddleware.test.js` | Passed |
+| `guestAuth` Invalid/Garbage Token | Returns 401 `{ message: "Not authorised", code: "INVALID_TOKEN" }` | `backend/middleware/sessionMiddleware.test.js` | Passed |
+| `guestAuth` `JWT_SECRET_INVALID` Propagation | Forwards error to `next(err)` instead of 401 client error | `backend/middleware/sessionMiddleware.test.js` | Passed |
+| `guestAuth` Invalid sid or missing sub | Returns 401 `{ message: "Not authorised", code: "INVALID_TOKEN" }` | `backend/middleware/sessionMiddleware.test.js` | Passed |
+| `requireHost` Guard | 403 NOT_HOST when missing guest, role 'guest', or status 'pending'; passes for approved host | `backend/middleware/sessionMiddleware.test.js` | Passed |
+| `requireAllergiesDeclared` Guard | 403 ALLERGIES_REQUIRED when allergiesDeclared is false or undefined; passes when true | `backend/middleware/sessionMiddleware.test.js` | Passed |
+| Token Algorithm Strictness | Rejects token signed with HS512 with 401 INVALID_TOKEN | `backend/middleware/sessionMiddleware.test.js` | Passed |
+
+## Table Session Integration Routes (`/api/sessions`) Test Checklist (Task 9a)
+
+| Route / Feature | Expected Result | Test File | Status |
+| :--- | :--- | :--- | :--- |
+| `POST /api/sessions/join` (First guest) | 201 Created; role "host", status "approved", token returned, normalised phone stored, unmasked phone never in response | `backend/routes/sessionRoutes.test.js` | Passed |
+| `POST /api/sessions/join` (Phone formatting) | Accepts 10 digits, spaces, hyphens, leading 0, 91, +91; stores normalised `+91XXXXXXXXXX` | `backend/routes/sessionRoutes.test.js` | Passed |
+| `POST /api/sessions/join` (Bad input validation) | 400 INVALID_INPUT on bad phone, nickname, tableNumber, qrToken, restaurantId | `backend/routes/sessionRoutes.test.js` | Passed |
+| `POST /api/sessions/join` (Invalid table/token) | 404 TABLE_NOT_FOUND with identical message/code for unknown restaurant, unknown table, wrong qrToken | `backend/routes/sessionRoutes.test.js` | Passed |
+| `POST /api/sessions/join` (Second guest) | 201 Created with status "pending", role "guest"; session retains exactly one host | `backend/routes/sessionRoutes.test.js` | Passed |
+| `POST /api/sessions/join` (Same phone repeated) | 409 ALREADY_JOINED if phone already active in current session | `backend/routes/sessionRoutes.test.js` | Passed |
+| `POST /api/sessions/join` (Cross-table occupancy) | 409 PHONE_ACTIVE_ELSEWHERE if phone active at another table; allowed after session closed | `backend/routes/sessionRoutes.test.js` | Passed |
+| `POST /api/sessions/join` (Capacity & expired requests)| 409 TABLE_FULL at 12 participants; unblocks when expired pending request is cleaned up | `backend/routes/sessionRoutes.test.js` | Passed |
+| `POST /api/sessions/join` (Pending expiry re-join) | Expired pending guest (>10m) can request again and leaves single pending entry | `backend/routes/sessionRoutes.test.js` | Passed |
+| `POST /api/sessions/join` (Idle session replacement) | Session idle >4 hours closed (reason "timeout", phones nulled); new session created with guest as host | `backend/routes/sessionRoutes.test.js` | Passed |
+| `POST /api/sessions/join` (Simultaneous joins) | Promise.all of 5 distinct phones: exactly 1 host, 4 pending, exactly 1 open session, no 500 | `backend/routes/sessionRoutes.test.js` | Passed |
+| `POST /api/sessions/join` (Simultaneous cross-table) | Promise.all of same phone at 2 tables: exactly 1 succeeds (201), 1 fails (409 PHONE_ACTIVE_ELSEWHERE) | `backend/routes/sessionRoutes.test.js` | Passed |
+| `POST /api/sessions/join` (Join-side table race) | `Table.exists` null at re-check: 404 TABLE_NOT_FOUND, closes session ("table-removed", phones null) | `backend/routes/sessionRoutes.test.js` | Passed |
+| `GET /api/sessions/me` (Visibility & masking) | Host sees approved & pending; approved sees approved; pending sees self; unmasked phones never leaked | `backend/routes/sessionRoutes.test.js` | Passed |
+| `GET /api/sessions/me` (Auth & token checks) | 401 on missing token, garbage token, staff token, closed session (SESSION_CLOSED), removed participant (PARTICIPANT_REMOVED), deleted session document | `backend/routes/sessionRoutes.test.js` | Passed |
+| Guest token on staff route | Guest token rejected with 401 on `GET /api/auth/me` | `backend/routes/sessionRoutes.test.js` | Passed |
+| Pending guest authorization | 403 APPROVAL_PENDING when pending guest accesses `/allergies` or `/menu` | `backend/routes/sessionRoutes.test.js` | Passed |
+| Expired pending guest access | Next request cleans up expired pending participant and returns 401 PARTICIPANT_REMOVED | `backend/routes/sessionRoutes.test.js` | Passed |
+| Idle session on guest access | Session idle >4h returns 401 SESSION_CLOSED and is closed with reason "timeout" | `backend/routes/sessionRoutes.test.js` | Passed |
+| Table delete race (Per-request half) | Deleted table returns 401 SESSION_CLOSED on next request and closes session with "table-removed" | `backend/routes/sessionRoutes.test.js` | Passed |
+| Touch `lastActivityAt` throttling | Touches timestamp when >60 seconds old; skips update when recent | `backend/routes/sessionRoutes.test.js` | Passed |
+| `POST /api/sessions/participants/:id/approve` | Host approves pending guest (200, status "approved"); 403 NOT_HOST for guest; 404 on unknown, already approved, expired request | `backend/routes/sessionRoutes.test.js` | Passed |
+| `POST /api/sessions/participants/:id/reject` | Host rejects pending guest (removed); 404 when attempting to reject approved guest or host self | `backend/routes/sessionRoutes.test.js` | Passed |
+| Cross-session approval isolation | Token from session A cannot approve/reject participants belonging to session B (404) | `backend/routes/sessionRoutes.test.js` | Passed |
+| `POST /api/sessions/allergies` | Declares allergies (200), sets allergiesDeclared true; empty array `[]` valid ("no allergies") | `backend/routes/sessionRoutes.test.js` | Passed |
+| `POST /api/sessions/allergies` (Validation) | 400 INVALID_INPUT on non-array, >10 items, unknown allergen, plural typos | `backend/routes/sessionRoutes.test.js` | Passed |
+| `POST /api/sessions/allergies` (Casing & de-dup) | Normalises casing/spacing and removes duplicate allergen entries | `backend/routes/sessionRoutes.test.js` | Passed |
+| `GET /api/sessions/menu` (Safety enforcement) | 403 ALLERGIES_REQUIRED before declaration; 200 after declaration with server-computed safe flag | `backend/routes/sessionRoutes.test.js` | Passed |
+| `GET /api/sessions/menu` (Allergen safety logic) | Clashes flagged safe=false reason="allergen"; unconfirmed dish safe=false reason="unconfirmed" for allergic diner; unconfirmed safe for guest with `[]` | `backend/routes/sessionRoutes.test.js` | Passed |
+| `GET /api/sessions/menu` (Scoping & keys) | Lists only available items for this restaurant; exact publicMenuItem keys + safe, clashes, reason | `backend/routes/sessionRoutes.test.js` | Passed |
+| `GET /api/sessions/menu` (Dynamic safety recalculation) | Subsequent `/allergies` updates immediately reflect on next `/menu` call | `backend/routes/sessionRoutes.test.js` | Passed |
+| `GET /api/sessions/menu` (Taxonomy ordering) | Items sorted by category ascending then name ascending | `backend/routes/sessionRoutes.test.js` | Passed |
+| Indian scripts & Nickname rules | Supports Hindi (`रवि`), Gujarati (`અમિત`), punctuation (`O'Connor-Smith Jr.`), collapses internal whitespace | `backend/routes/sessionRoutes.test.js` | Passed |
+
 ## Known gaps
 
 | Gap | Closed by | Proven by | Status |
 | :--- | :--- | :--- | :--- |
-| Table delete vs guest join race | delete side: Task 5b; join side: session task (after creating or finding the session, re-check the table still exists, otherwise close the session and answer 404) | closeOrphanSessions tests now; join re-check test in the session task | half closed |
+| Table delete vs guest join race | Closed in Task 5b (delete-side orphan cleanup) and Task 9a (join-side re-check and per-request Table.exists check) | `closeOrphanSessions` tests in `tableRoutes.test.js`; join-side race test and per-request delete test in `sessionRoutes.test.js` | closed (Task 9a) |
 | Missing JWT_SECRET shows as 401 in protect instead of failing at startup | Task 7 | generateToken and authRoutes tests | closed (Task 7) |
 | No rate limit on login | hardening task (needs express-rate-limit, needs my approval) | pending | open |
 | Malformed JSON body: confirm it answers 400, not 500 | Task 7 | server.test.js and the errorMiddleware tests | closed (Task 7) |
 | Table QR token is a static secret, so a photo of the QR lets anyone join | rotate-token route done in Task 7, the real fix is the session lifecycle (see the new row below) | tableRoutes rotate-token tests | half closed |
-| A previous party, or anyone holding a photo of the QR, can reach the next party's table. Needs a session lifecycle: staff opens the table or approves guests, closing the table invalidates every guest token and socket connection, every guest request re-checks that its session is open and its table still exists, and an inactivity timeout closes forgotten sessions | session task (design waits for the mentor's answer) | pending | open |
+| A previous party, or anyone holding a photo of the QR, can reach the next party's table. Needs a session lifecycle: staff opens the table or approves guests, closing the table invalidates every guest token and socket connection, every guest request re-checks that its session is open and its table still exists, and an inactivity timeout closes forgotten sessions | phone-number join, one session per table and per phone, host approval, per-request session open check, and 4-hour idle timeout are completed in Task 9a; staff reject/reset and idle sweeper come in Task 9b | `sessionRoutes.test.js` and `sessionMiddleware.test.js` | half closed |
 | $inc skips the min 1 rule on cart qty | cart task | pending | open |
-| Guest allergies must be declared before any cart action (allergiesDeclared) | session task | pending | open |
+| Guest allergies must be declared before any cart action (allergiesDeclared) | Enforced for guest menu in Task 9a (`requireAllergiesDeclared`); cart task must apply `requireAllergiesDeclared` to cart mutations | `sessionMiddleware.test.js` and `sessionRoutes.test.js` | half closed |
 | Unique open-session index is declared but not proven against the real database | Task 7 | tableSessionIndex.test.js | closed (Task 7) |
 | Frontend allergen list must match KNOWN_ALLERGENS exactly | frontend foundation task | pending | open |
 | npm audit: review production dependencies before submission | final review | pending | open |
-| Public menu returns raw allergen tags: guest screens must use the server-computed safe flag from the session menu and never compute safety in the client | session task and frontend tasks | pending | open |
+| Public menu returns raw allergen tags: guest screens must use the server-computed safe flag from the session menu and never compute safety in the client | Server-computed flag implemented in `GET /api/sessions/menu` (Task 9a); frontend guest view must consume this endpoint | `sessionRoutes.test.js` | half closed |
 | Menu item names are not unique per restaurant (needs a unique index, which is a model change) | hardening task | pending | open |
 | Seeded demo accounts must never exist in a deployed database (seed already refuses production) | final review | assertSeedAllowed tests now | half closed |
 | Demo menu allergen tags are checked by keyword rules and a manual skim, not by a food safety professional | final review (owner skims; the report states the limitation) | pending | open |
+| Phone numbers are not verified (no SMS code): anyone with the QR and any number can request to join, and the only protection against impersonation is host or staff approval | SMS verification is future scope and must be stated in the report | Architecture limitation | open |
+| The join endpoint has no rate limit, so someone with a QR photo can flood a table with requests (each expires after 10 minutes and a table holds 12 people) | hardening part 2 (needs express-rate-limit, needs my approval) | Security limitation | open |
+| Data protection: phone numbers are stored only while a session is open, erased when it closes and masked in every response; describe this in the report (India's DPDP Act is the reason) | final report | `sessionRoutes.test.js` and `tableSessionIndex.test.js` | open |
+

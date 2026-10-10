@@ -417,12 +417,21 @@ describe('Table Routes (/api/tables)', () => {
   });
 
   describe('closeOrphanSessions helper', () => {
-    test('closes an open session for a table id (table need not exist) and returns 1', async () => {
+    test('closes an open session for a table id (table need not exist) and returns 1 with closedReason "table-removed", closedAt set and phones null', async () => {
       const nonExistentTableId = new mongoose.Types.ObjectId();
       const session = await TableSession.create({
         tableId: nonExistentTableId,
         restaurantId: fixtures.restaurantA._id,
         status: 'open',
+        participants: [
+          {
+            id: 'participant-uuid-1',
+            nickname: 'Aarav',
+            phone: '+919824079988',
+            role: 'host',
+            status: 'approved',
+          },
+        ],
       });
 
       const closedCount = await closeOrphanSessions(nonExistentTableId);
@@ -430,6 +439,10 @@ describe('Table Routes (/api/tables)', () => {
 
       const refreshed = await TableSession.findById(session._id);
       expect(refreshed.status).toBe('closed');
+      expect(refreshed.closedReason).toBe('table-removed');
+      expect(refreshed.closedAt).toBeInstanceOf(Date);
+      expect(refreshed.participants[0].phone).toBeNull();
+      expect(refreshed.participants[0].nickname).toBe('Aarav');
     });
 
     test('leaves a closed session and another table open session untouched', async () => {

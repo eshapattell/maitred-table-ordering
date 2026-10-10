@@ -123,14 +123,23 @@ export const getTableQR = async (req, res, next) => {
 /**
  * Closes every TableSession of that table that is still "open", using one updateMany,
  * and returns the number of sessions it closed.
+ * Sets closedAt, closedReason "table-removed", and erases participant phone numbers.
  *
  * @param {string|mongoose.Types.ObjectId} tableId
+ * @param {Date} [now=new Date()]
  * @returns {Promise<number>}
  */
-export const closeOrphanSessions = async (tableId) => {
+export const closeOrphanSessions = async (tableId, now = new Date()) => {
   const result = await TableSession.updateMany(
     { tableId, status: 'open' },
-    { $set: { status: 'closed' } }
+    {
+      $set: {
+        status: 'closed',
+        closedAt: now,
+        closedReason: 'table-removed',
+        'participants.$[].phone': null,
+      },
+    }
   );
   return result.modifiedCount;
 };

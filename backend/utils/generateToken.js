@@ -49,14 +49,56 @@ export const generateToken = (user) => {
 };
 
 /**
- * Verifies a JWT token signature and expiry using HS256.
+ * Verifies a staff JWT token signature and expiry using HS256.
+ * Rejects tokens containing an "aud" claim (e.g. guest tokens).
  *
  * @param {string} token - The raw JWT token string
  * @returns {Object} Decoded token payload
  */
 export const verifyToken = (token) => {
   const secret = getSecret();
+  const decoded = jwt.verify(token, secret, {
+    algorithms: ['HS256'],
+  });
+  if (decoded && decoded.aud) {
+    throw new Error('Staff token cannot contain audience claim');
+  }
+  return decoded;
+};
+
+/**
+ * Generates a signed JWT token for a dining table guest participant.
+ * Uses audience "maitred-guest", subject participantId, and sid in payload.
+ *
+ * @param {{ sessionId: string, participantId: string }} params
+ * @returns {string} Signed JWT token string
+ */
+export const generateGuestToken = ({ sessionId, participantId }) => {
+  const secret = getSecret();
+  return jwt.sign(
+    {
+      sid: String(sessionId),
+    },
+    secret,
+    {
+      algorithm: 'HS256',
+      audience: 'maitred-guest',
+      subject: String(participantId),
+      expiresIn: '8h',
+    }
+  );
+};
+
+/**
+ * Verifies a guest JWT token signature and audience using HS256.
+ *
+ * @param {string} token - The raw guest JWT token string
+ * @returns {Object} Decoded token payload
+ */
+export const verifyGuestToken = (token) => {
+  const secret = getSecret();
   return jwt.verify(token, secret, {
     algorithms: ['HS256'],
+    audience: 'maitred-guest',
   });
 };

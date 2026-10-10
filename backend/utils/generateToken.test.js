@@ -1,5 +1,11 @@
 import jwt from 'jsonwebtoken';
-import { generateToken, verifyToken, assertJwtSecret } from './generateToken.js';
+import {
+  generateToken,
+  verifyToken,
+  generateGuestToken,
+  verifyGuestToken,
+  assertJwtSecret,
+} from './generateToken.js';
 
 describe('generateToken and verifyToken', () => {
   const originalSecret = process.env.JWT_SECRET;
@@ -156,6 +162,112 @@ describe('generateToken and verifyToken', () => {
       expect(thrownError.code).toBe('JWT_SECRET_INVALID');
       expect(thrownError.message).toMatch(/JWT_SECRET/);
       expect(thrownError.message).not.toContain('short');
+    });
+  });
+
+  describe('generateGuestToken and verifyGuestToken (Task 9a)', () => {
+    test('Round trip: correctly signs and decodes sub, sid, and aud "maitred-guest"', () => {
+      const sessionId = '607f1f77bcf86cd799439033';
+      const participantId = 'guest-uuid-1234';
+
+      const token = generateGuestToken({ sessionId, participantId });
+      expect(typeof token).toBe('string');
+
+      const decoded = verifyGuestToken(token);
+      expect(decoded.sub).toBe(participantId);
+      expect(decoded.sid).toBe(sessionId);
+      expect(decoded.aud).toBe('maitred-guest');
+    });
+
+    test('Mutual token rejection: a staff token fails verifyGuestToken', () => {
+      const staffUser = {
+        _id: '507f1f77bcf86cd799439011',
+        role: 'owner',
+        restaurantId: '607f1f77bcf86cd799439022',
+      };
+      const staffToken = generateToken(staffUser);
+
+      expect(() => verifyGuestToken(staffToken)).toThrow();
+    });
+
+    test('Mutual token rejection: a guest token fails verifyToken', () => {
+      const guestToken = generateGuestToken({
+        sessionId: '607f1f77bcf86cd799439033',
+        participantId: 'guest-uuid-1234',
+      });
+
+      expect(() => verifyToken(guestToken)).toThrow('Staff token cannot contain audience claim');
+    });
+
+    test('Expired guest token is rejected', () => {
+      const expiredGuestToken = jwt.sign(
+        { sid: '607f1f77bcf86cd799439033' },
+        testSecret,
+        {
+          algorithm: 'HS256',
+          audience: 'maitred-guest',
+          subject: 'guest-uuid-1234',
+          expiresIn: '-1s',
+        }
+      );
+
+      expect(() => verifyGuestToken(expiredGuestToken)).toThrow();
+    });
+
+    test('Tampered guest token is rejected', () => {
+      const guestToken = generateGuestToken({
+        sessionId: '607f1f77bcf86cd799439033',
+        participantId: 'guest-uuid-1234',
+      });
+      const parts = guestToken.split('.');
+      const tamperedPayload = Buffer.from(
+        JSON.stringify({ sid: '607f1f77bcf86cd799439099', aud: 'maitred-guest', sub: 'guest-uuid-1234' })
+      ).toString('base64url');
+      const tamperedToken = `${parts[0]}.${tamperedPayload}.${parts[2]}`;
+
+      expect(() => verifyGuestToken(tamperedToken)).toThrow();
+    });
+
+    test('Guest token with wrong secret is rejected', () => {
+      const guestToken = generateGuestToken({
+        sessionId: '607f1f77bcf86cd799439033',
+        participantId: 'guest-uuid-1234',
+      });
+
+      process.env.JWT_SECRET = 'different_secret_key_exceeding_16_bytes';
+      expect(() => verifyGuestToken(guestToken)).toThrow();
+    });
+
+    test('Guest token with alg "none" is rejected', () => {
+      const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
+      const payload = Buffer.from(
+        JSON.stringify({ sid: '607f1f77bcf86cd799439033', aud: 'maitred-guest', sub: 'guest-uuid-1234' })
+      ).toString('base64url');
+      const noneToken = `${header}.${payload}.`;
+
+      expect(() => verifyGuestToken(noneToken)).toThrow();
+    });
+
+    test('An invalid JWT_SECRET gives code JWT_SECRET_INVALID on generateGuestToken and verifyGuestToken', () => {
+      delete process.env.JWT_SECRET;
+
+      let genError;
+      try {
+        generateGuestToken({ sessionId: 's1', participantId: 'p1' });
+      } catch (err) {
+        genError = err;
+      }
+      expect(genError).toBeDefined();
+      expect(genError.code).toBe('JWT_SECRET_INVALID');
+
+      let verifyError;
+      try {
+        verifyGuestToken('some.guest.token');
+      } catch (err) {
+        verifyError = err;
+      }
+      expect(verifyError).toBeDefined();
+      expect(verifyError.code).toBe('JWT_SECRET_INVALID');
     });
   });
 });

@@ -34,6 +34,44 @@ const participantSchema = new mongoose.Schema(
       budget: { type: Number, min: 0 },
       dislikes: [{ type: String, trim: true }],
     },
+    // Guest mobile number (+91 followed by 10 digits, or null when closed)
+    phone: {
+      type: String,
+      default: null,
+    },
+    // Mobile number verification flag (there is no SMS code yet)
+    phoneVerified: {
+      type: Boolean,
+      default: false,
+    },
+    // Participant role: host can approve/reject guests; guests participate in cart
+    role: {
+      type: String,
+      enum: {
+        values: ['host', 'guest'],
+        message: '{VALUE} is not a valid participant role',
+      },
+      default: 'guest',
+    },
+    // Participant approval status
+    status: {
+      type: String,
+      enum: {
+        values: ['approved', 'pending'],
+        message: '{VALUE} is not a valid participant status',
+      },
+      default: 'pending',
+    },
+    // Flag indicating whether the guest has declared their dietary allergies
+    allergiesDeclared: {
+      type: Boolean,
+      default: false,
+    },
+    // Timestamp when the guest joined or requested to join
+    joinedAt: {
+      type: Date,
+      default: Date.now,
+    },
   },
   { _id: false } // Disable default Mongoose _id so participant.id is the single source of truth
 );
@@ -125,6 +163,30 @@ const tableSessionSchema = new mongoose.Schema(
       type: [cartItemSchema],
       default: [],
     },
+    // Server-assigned string participant ID of the host guest
+    hostId: {
+      type: String,
+      default: null,
+    },
+    // Timestamp of the most recent guest activity or keep-alive touch
+    lastActivityAt: {
+      type: Date,
+      default: Date.now,
+    },
+    // Timestamp when this session was terminated
+    closedAt: {
+      type: Date,
+      default: null,
+    },
+    // Reason why this session was closed
+    closedReason: {
+      type: String,
+      enum: {
+        values: ['reset', 'rejected', 'timeout', 'table-removed'],
+        message: '{VALUE} is not a valid closed reason',
+      },
+      default: null,
+    },
   },
   {
     timestamps: true, // Automatically manages createdAt and updatedAt timestamps
@@ -139,6 +201,19 @@ tableSessionSchema.index({ tableId: 1, status: 1 });
 tableSessionSchema.index(
   { tableId: 1 },
   { unique: true, partialFilterExpression: { status: 'open' } }
+);
+
+// Partial unique index: ensure a phone number can only be active in one open session.
+// Why: one phone number can be active in only one open session, so nobody can hold two tables.
+tableSessionSchema.index(
+  { 'participants.phone': 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      status: 'open',
+      'participants.phone': { $type: 'string' },
+    },
+  }
 );
 
 const TableSession = mongoose.model('TableSession', tableSessionSchema);

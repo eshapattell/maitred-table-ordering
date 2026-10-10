@@ -11,6 +11,7 @@ import authRoutes from './routes/authRoutes.js';
 import restaurantRoutes from './routes/restaurantRoutes.js';
 import tableRoutes from './routes/tableRoutes.js';
 import menuRoutes from './routes/menuRoutes.js';
+import sessionRoutes from './routes/sessionRoutes.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 import { assertJwtSecret } from './utils/generateToken.js';
 
@@ -49,6 +50,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/restaurants', restaurantRoutes);
 app.use('/api/tables', tableRoutes);
 app.use('/api/menu', menuRoutes);
+app.use('/api/sessions', sessionRoutes);
 
 // 404 and central error handling middleware
 app.use(notFound);
