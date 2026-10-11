@@ -14,6 +14,7 @@ import menuRoutes from './routes/menuRoutes.js';
 import sessionRoutes from './routes/sessionRoutes.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 import { assertJwtSecret } from './utils/generateToken.js';
+import { startIdleSweeper } from './controllers/sessionController.js';
 
 // Load environment variables from .env
 dotenv.config();
@@ -72,6 +73,7 @@ const startServer = async () => {
   await connectDB();
   server.listen(PORT, () => {
     console.log(`[maitred] Server listening on port ${PORT}`);
+    startIdleSweeper();
   });
 };
 

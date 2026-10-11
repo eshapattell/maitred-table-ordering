@@ -261,6 +261,30 @@ All automated tests adhere to project testing rules:
 | `POST /api/sessions/join` (Pending push exhaustion) | updateOne continuously matching 0 answers 503 TRY_AGAIN | `backend/routes/sessionRoutes.test.js` | Passed |
 | `POST /api/sessions/allergies` (Session closed race) | updateOne matching 0 (session closed in between) answers 401 SESSION_CLOSED | `backend/routes/sessionRoutes.test.js` | Passed |
 
+## Staff Session Safeguards & Sweeper Test Checklist (Task 9b)
+
+| Route / Feature | Expected Result | Test File | Status |
+| :--- | :--- | :--- | :--- |
+| `GET /api/sessions/staff/active` (Owner & Kitchen access) | Returns open sessions of own restaurant sorted by table number ascending; restaurant B and closed sessions excluded | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `GET /api/sessions/staff/active` (Key whitelist & idleMinutes) | Exactly 9 documented keys; idleMinutes accurately reflects lastActivityAt elapsed time | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `GET /api/sessions/staff/active` (Expired request exclusion) | Expired pending requests (>10m) excluded from participantCount, pendingCount, and participants array | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `GET /api/sessions/staff/active` (Data protection & masking) | Entire JSON response contains no raw phone numbers or 10-digit unmasked strings; only masked values | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `GET /api/sessions/staff/active` (Auth guards) | 401 on missing token, guest token, or garbage token | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `POST /api/sessions/staff/:id/close` (Reset) | 200 { message: "Table reset" }; status "closed", reason "reset", closedAt set, phones null; guest tokens answer 401 SESSION_CLOSED; table freed | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `POST /api/sessions/staff/:id/close` (Rejected) | 200 { message: "Session rejected" }; status "closed", reason "rejected", phones null | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `POST /api/sessions/staff/:id/close` (Validation & scoping) | 400 on missing/invalid reason; 404 on unknown session, restaurant B, already closed session, not-an-id, or double close | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `POST /api/sessions/staff/:id/close` (Concurrent close race) | Database update matching 0 answers 404 NOT_FOUND, never 200 | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `POST /api/sessions/staff/:id/participants/:id/approve` | Staff approves pending guest (200 with staff view, status "approved" in DB) while host inactive; same shape as active item | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `POST /api/sessions/staff/:id/participants/:id/approve` (Guards) | 404 on unknown participant, already approved, expired request, weird status, restaurant B session, closed session, or update matchedCount 0 | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `POST /api/sessions/staff/:id/participants/:id/remove` (Pending) | 200 { message: "Removed" }; pulls pending guest from array | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `POST /api/sessions/staff/:id/participants/:id/remove` (Approved) | 200 { message: "Removed" }; token answers PARTICIPANT_REMOVED; phone freed immediately for new table | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `POST /api/sessions/staff/:id/participants/:id/remove` (Host promotion) | Removing host promotes longest-seated approved guest (hostId and role "host" updated in DB) | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `POST /api/sessions/staff/:id/participants/:id/remove` (Empty/pending only reset) | Removing host with only pending guests left closes session (reason "reset", phones null); removing last participant does same | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `POST /api/sessions/staff/:id/participants/:id/remove` (Guards) | 404 on unknown participant, restaurant B, closed session, not-an-id, or update matchedCount 0 | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `closeIdleSessions` (Inactivity sweeper logic) | Closes sessions idle >240m (reason "timeout", phones null); 239m remains open; returns closed count (0 on second call); table freed | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `startIdleSweeper` (Recurring interval execution) | Calls run repeatedly, survives exceptions thrown by run, timer is unref'd, clearable via clearInterval | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| Server Startup Sweeper Wiring | server.js calls startIdleSweeper() exactly once after server.listen, guarded by NODE_ENV !== 'test' | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+
 ## Known gaps
 
 | Gap | Closed by | Proven by | Status |
@@ -270,7 +294,7 @@ All automated tests adhere to project testing rules:
 | No rate limit on login | hardening task (needs express-rate-limit, needs my approval) | pending | open |
 | Malformed JSON body: confirm it answers 400, not 500 | Task 7 | server.test.js and the errorMiddleware tests | closed (Task 7) |
 | Table QR token is a static secret, so a photo of the QR lets anyone join | rotate-token route done in Task 7, the real fix is the session lifecycle (see the new row below) | tableRoutes rotate-token tests | half closed |
-| A previous party, or anyone holding a photo of the QR, can reach the next party's table. Needs a session lifecycle: staff opens the table or approves guests, closing the table invalidates every guest token and socket connection, every guest request re-checks that its session is open and its table still exists, and an inactivity timeout closes forgotten sessions | phone-number join, one session per table and per phone, host approval, per-request session open check, and 4-hour idle timeout are completed in Task 9a; staff reject/reset and idle sweeper come in Task 9b | `sessionRoutes.test.js` and `sessionMiddleware.test.js` | half closed |
+| A previous party, or anyone holding a photo of the QR, can reach the next party's table. Needs a session lifecycle: staff opens the table or approves guests, closing the table invalidates every guest token and socket connection, every guest request re-checks that its session is open and its table still exists, and an inactivity timeout closes forgotten sessions | phone-number join, one session per table and per phone, host approval, staff reject, reset and removal, and the idle sweeper | `sessionRoutes.test.js`, `sessionMiddleware.test.js`, and `sessionStaffRoutes.test.js` | closed (Task 9b) |
 | $inc skips the min 1 rule on cart qty | cart task | pending | open |
 | Guest allergies must be declared before any cart action (allergiesDeclared) | Enforced for guest menu in Task 9a (`requireAllergiesDeclared`); cart task must apply `requireAllergiesDeclared` to cart mutations | `sessionMiddleware.test.js` and `sessionRoutes.test.js` | half closed |
 | Unique open-session index is declared but not proven against the real database | Task 7 | tableSessionIndex.test.js | closed (Task 7) |
@@ -285,4 +309,7 @@ All automated tests adhere to project testing rules:
 | Data protection: phone numbers are stored only while a session is open, erased when it closes and masked in every response; describe this in the report (India's DPDP Act is the reason) | final report | `sessionRoutes.test.js` and `tableSessionIndex.test.js` | open |
 | Someone holding a QR photo can learn whether a given phone number is currently seated at this restaurant, because the 409 answers reveal it | rate limiting (hardening part 2) and SMS verification (future scope); state it in the report | pending | open |
 | Phone uniqueness is enforced across the whole database, not per restaurant; fine for one restaurant | scope it per restaurant when multi-restaurant support is built; state it in the report | pending | open |
+| Staff reset does not check for an unpaid bill (orders and bills are built in later tasks) | the bill task: the staff screen warns when unpaid items exist before a reset | open | open |
+| Pending approvals and the staff session list are fetched by polling, not pushed live | the Socket.io cart task adds live updates | open | open |
+| The idle limit of 4 hours is a safety valve chosen by us, not by the mentor; a table with no activity for 4 hours can be claimed again | state it in the report | open | open |
 

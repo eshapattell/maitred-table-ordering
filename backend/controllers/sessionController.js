@@ -4,13 +4,15 @@ import mongoose from 'mongoose';
 import Table from '../models/Table.js';
 import TableSession from '../models/TableSession.js';
 import MenuItem from '../models/MenuItem.js';
-import { normalisePhone } from '../utils/phone.js';
+import { normalisePhone, maskPhone } from '../utils/phone.js';
 import {
   SESSION_LIMITS,
   isPendingExpired,
   decideJoin,
   sanitiseNickname,
   selfParticipant,
+  staffParticipant,
+  pickNewHost,
   visibleParticipantsFor,
 } from '../utils/sessionRules.js';
 import { generateGuestToken } from '../utils/generateToken.js';
@@ -444,4 +446,304 @@ export const rejectGuest = async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+};
+
+/**
+ * Helper: formats a table session document for staff view.
+ * Excludes expired pending requests and masks all phone numbers.
+ *
+ * @param {object} session
+ * @param {number|null} tableNumber
+ * @param {Date} [now=new Date()]
+ * @returns {object}
+ */
+export const formatStaffSession = (session, tableNumber, now = new Date()) => {
+  const lastTime = session.lastActivityAt
+    ? new Date(session.lastActivityAt).getTime()
+    : new Date(session.createdAt).getTime();
+  const idleMs = Number.isFinite(lastTime) ? Math.max(0, now.getTime() - lastTime) : 0;
+  const idleMinutes = Math.floor(idleMs / (60 * 1000));
+
+  const liveParticipants = (session.participants || []).filter((p) => {
+    if (!p || typeof p !== 'object') return false;
+    if (p.status === 'approved') return true;
+    if (p.status === 'pending' && !isPendingExpired(p, now)) return true;
+    return false;
+  });
+
+  const pendingParticipants = liveParticipants.filter((p) => p.status === 'pending');
+  const hostParticipant =
+    liveParticipants.find((p) => p.id === session.hostId && p.role === 'host') ||
+    liveParticipants.find((p) => p.role === 'host' && p.status === 'approved');
+
+  return {
+    id: String(session._id),
+    tableNumber: typeof tableNumber === 'number' ? tableNumber : null,
+    createdAt: session.createdAt,
+    lastActivityAt: session.lastActivityAt,
+    idleMinutes,
+    participantCount: liveParticipants.length,
+    pendingCount: pendingParticipants.length,
+    host: hostParticipant
+      ? { nickname: hostParticipant.nickname, maskedPhone: maskPhone(hostParticipant.phone) }
+      : null,
+    participants: liveParticipants.map(staffParticipant),
+  };
+};
+
+/**
+ * GET /api/sessions/staff/active
+ * Lists all open sessions for the authenticated staff user's restaurant, sorted by table number.
+ */
+export const getActiveStaffSessions = async (req, res, next) => {
+  try {
+    const restaurantId = req.user.restaurantId;
+
+    // One query for the sessions, one query for the table numbers
+    const sessions = await TableSession.find({
+      restaurantId,
+      status: 'open',
+    }).lean();
+
+    const tableIds = sessions.map((s) => s.tableId);
+    const tables = await Table.find({
+      _id: { $in: tableIds },
+      restaurantId,
+    })
+      .select('_id number')
+      .lean();
+
+    const tableMap = new Map(tables.map((t) => [String(t._id), t.number]));
+    const now = new Date();
+
+    const formattedSessions = sessions
+      .map((session) => {
+        const tableNumber = tableMap.get(String(session.tableId)) ?? null;
+        return formatStaffSession(session, tableNumber, now);
+      })
+      .sort((a, b) => (a.tableNumber ?? 0) - (b.tableNumber ?? 0));
+
+    res.status(200).json({ sessions: formattedSessions });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /api/sessions/staff/:sessionId/close
+ * Resets or rejects an open table session, freeing the table and erasing guest phone numbers.
+ */
+export const closeStaffSession = async (req, res, next) => {
+  try {
+    const { sessionId } = req.params;
+    const { reason } = req.body || {};
+
+    if (!mongoose.isObjectIdOrHexString(sessionId)) {
+      return res.status(404).json({ message: 'Session not found', code: 'NOT_FOUND' });
+    }
+
+    if (typeof reason !== 'string' || (reason !== 'reset' && reason !== 'rejected')) {
+      return res.status(400).json({ message: 'Invalid reason', code: 'INVALID_INPUT' });
+    }
+
+    const session = await TableSession.findOne({
+      _id: sessionId,
+      restaurantId: req.user.restaurantId,
+      status: 'open',
+    }).lean();
+
+    if (!session) {
+      return res.status(404).json({ message: 'Session not found', code: 'NOT_FOUND' });
+    }
+
+    const closed = await closeSession(session._id, reason);
+    if (!closed) {
+      return res.status(404).json({ message: 'Session not found', code: 'NOT_FOUND' });
+    }
+
+    if (reason === 'reset') {
+      return res.status(200).json({ message: 'Table reset' });
+    }
+    return res.status(200).json({ message: 'Session rejected' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /api/sessions/staff/:sessionId/participants/:participantId/approve
+ * Approves a pending participant request even if the host is away.
+ */
+export const approveStaffParticipant = async (req, res, next) => {
+  try {
+    const { sessionId, participantId } = req.params;
+
+    if (!mongoose.isObjectIdOrHexString(sessionId)) {
+      return res.status(404).json({ message: 'Session not found', code: 'NOT_FOUND' });
+    }
+
+    const session = await TableSession.findOne({
+      _id: sessionId,
+      restaurantId: req.user.restaurantId,
+      status: 'open',
+    }).lean();
+
+    if (!session) {
+      return res.status(404).json({ message: 'Session not found', code: 'NOT_FOUND' });
+    }
+
+    const target = (session.participants || []).find((p) => p && p.id === participantId);
+    if (!target || target.status !== 'pending' || isPendingExpired(target, new Date())) {
+      return res.status(404).json({ message: 'No such request', code: 'NOT_FOUND' });
+    }
+
+    const result = await TableSession.updateOne(
+      { _id: session._id, restaurantId: req.user.restaurantId, status: 'open' },
+      { $set: { 'participants.$[p].status': 'approved' } },
+      { arrayFilters: [{ 'p.id': participantId, 'p.status': 'pending' }] }
+    );
+
+    if (result.modifiedCount === 0) {
+      return res.status(404).json({ message: 'No such request', code: 'NOT_FOUND' });
+    }
+
+    const updated = await TableSession.findById(session._id).lean();
+    const table = await Table.findById(updated.tableId).select('number').lean();
+    const tableNumber = table ? table.number : null;
+
+    res.status(200).json(formatStaffSession(updated, tableNumber));
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /api/sessions/staff/:sessionId/participants/:participantId/remove
+ * Removes any participant (pending, approved, or host) from the session.
+ */
+export const removeStaffParticipant = async (req, res, next) => {
+  try {
+    const { sessionId, participantId } = req.params;
+
+    if (!mongoose.isObjectIdOrHexString(sessionId)) {
+      return res.status(404).json({ message: 'Session not found', code: 'NOT_FOUND' });
+    }
+
+    // a. Read the open session scoped to the restaurant; participant must exist in it
+    const session = await TableSession.findOne({
+      _id: sessionId,
+      restaurantId: req.user.restaurantId,
+      status: 'open',
+    }).lean();
+
+    if (!session) {
+      return res.status(404).json({ message: 'Session not found', code: 'NOT_FOUND' });
+    }
+
+    const target = (session.participants || []).find((p) => p && p.id === participantId);
+    if (!target) {
+      return res.status(404).json({ message: 'Participant not found', code: 'NOT_FOUND' });
+    }
+
+    // b. Pull participant from array; matchedCount 0 is 404
+    const pullResult = await TableSession.updateOne(
+      {
+        _id: session._id,
+        restaurantId: req.user.restaurantId,
+        status: 'open',
+        'participants.id': participantId,
+      },
+      { $pull: { participants: { id: participantId } } }
+    );
+
+    if (pullResult.matchedCount === 0) {
+      return res.status(404).json({ message: 'Participant not found', code: 'NOT_FOUND' });
+    }
+
+    // c. If removed person was host, promote longest-seated approved guest
+    // Viva note: A $pull and a positional $set on the same array cannot be combined in one update,
+    // which is why promoting a new host is done as a second step.
+    // Include arrayFilters ONLY in an update that uses $[h]; MongoDB rejects an unused array filter.
+    const wasHost = target.role === 'host' || session.hostId === participantId;
+    if (wasHost) {
+      const newHostId = pickNewHost(session.participants, participantId);
+      if (newHostId !== null) {
+        const promoteResult = await TableSession.updateOne(
+          { _id: session._id, restaurantId: req.user.restaurantId, status: 'open' },
+          { $set: { hostId: newHostId, 'participants.$[h].role': 'host' } },
+          { arrayFilters: [{ 'h.id': newHostId, 'h.status': 'approved' }] }
+        );
+        if (promoteResult.matchedCount === 0) {
+          return res.status(404).json({ message: 'Session not found', code: 'NOT_FOUND' });
+        }
+      }
+    }
+
+    // d. Read the session again. If no APPROVED participant is left, closeSession with 'reset'.
+    // Viva note: A session nobody can run (empty or only waiting guests without a host) must
+    // not keep a table locked; the next guest to scan becomes host of a fresh one.
+    const reread = await TableSession.findById(session._id).lean();
+    const hasApproved = reread && (reread.participants || []).some((p) => p && p.status === 'approved');
+    if (!hasApproved) {
+      await closeSession(session._id, 'reset');
+    }
+
+    res.status(200).json({ message: 'Removed' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Closes open sessions idle for longer than SESSION_LIMITS.idleMinutes.
+ * Logs nothing and returns the number of sessions actually closed.
+ *
+ * @param {Date} [now=new Date()]
+ * @returns {Promise<number>}
+ */
+export const closeIdleSessions = async (now = new Date()) => {
+  const cutoff = new Date(now.getTime() - SESSION_LIMITS.idleMinutes * 60 * 1000);
+  const idleSessions = await TableSession.find({
+    status: 'open',
+    lastActivityAt: { $lt: cutoff },
+  })
+    .select('_id')
+    .lean();
+
+  let closedCount = 0;
+  for (const session of idleSessions) {
+    const closed = await closeSession(session._id, 'timeout', now);
+    if (closed) {
+      closedCount += 1;
+    }
+  }
+  return closedCount;
+};
+
+/**
+ * Starts a recurring background interval that sweeps and closes idle sessions.
+ * Returns the unref'd timer object.
+ *
+ * @param {{ intervalMs?: number, run?: Function }} [options={}]
+ * @returns {NodeJS.Timeout}
+ */
+export const startIdleSweeper = ({
+  intervalMs = 10 * 60 * 1000,
+  run = closeIdleSessions,
+} = {}) => {
+  const timer = setInterval(async () => {
+    try {
+      const closed = await run();
+      if (closed > 0) {
+        console.error(`[maitred] closed ${closed} idle table session(s)`);
+      }
+    } catch {
+      // Swallows errors so a single database hiccup never stops the sweeper
+    }
+  }, intervalMs);
+
+  if (timer && typeof timer.unref === 'function') {
+    timer.unref();
+  }
+  return timer;
 };
