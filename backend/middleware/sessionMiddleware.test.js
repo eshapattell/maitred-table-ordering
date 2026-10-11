@@ -5,6 +5,8 @@ import {
   requireHost,
   requireAllergiesDeclared,
 } from './sessionMiddleware.js';
+import Table from '../models/Table.js';
+import TableSession from '../models/TableSession.js';
 
 describe('sessionMiddleware Unit Tests', () => {
   const originalSecret = process.env.JWT_SECRET;
@@ -386,6 +388,48 @@ describe('sessionMiddleware Unit Tests', () => {
         code: 'INVALID_TOKEN',
       });
       expect(next).not.toHaveBeenCalled();
+    });
+
+    test('participant with status other than "approved" or "pending" (e.g. "weird") fails closed with 401 PARTICIPANT_REMOVED', async () => {
+      const jwt = (await import('jsonwebtoken')).default;
+      const weirdToken = jwt.sign(
+        { sid: '507f1f77bcf86cd799439011' },
+        testSecret,
+        {
+          algorithm: 'HS256',
+          audience: 'maitred-guest',
+          subject: 'p_weird',
+          expiresIn: '1h',
+        }
+      );
+
+      const findSpy = jest.spyOn(TableSession, 'findById').mockReturnValue({
+        lean: () =>
+          Promise.resolve({
+            _id: '507f1f77bcf86cd799439011',
+            status: 'open',
+            tableId: '507f1f77bcf86cd799439012',
+            participants: [{ id: 'p_weird', status: 'weird' }],
+            lastActivityAt: new Date(),
+          }),
+      });
+      const existsSpy = jest.spyOn(Table, 'exists').mockResolvedValue(true);
+
+      const req = { headers: { authorization: `Bearer ${weirdToken}` } };
+      const res = mockRes();
+      const next = jest.fn();
+
+      await guestAuth()(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith({
+        message: 'You are no longer part of this table',
+        code: 'PARTICIPANT_REMOVED',
+      });
+      expect(next).not.toHaveBeenCalled();
+
+      findSpy.mockRestore();
+      existsSpy.mockRestore();
     });
   });
 });

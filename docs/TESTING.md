@@ -216,6 +216,7 @@ All automated tests adhere to project testing rules:
 | `requireHost` Guard | 403 NOT_HOST when missing guest, role 'guest', or status 'pending'; passes for approved host | `backend/middleware/sessionMiddleware.test.js` | Passed |
 | `requireAllergiesDeclared` Guard | 403 ALLERGIES_REQUIRED when allergiesDeclared is false or undefined; passes when true | `backend/middleware/sessionMiddleware.test.js` | Passed |
 | Token Algorithm Strictness | Rejects token signed with HS512 with 401 INVALID_TOKEN | `backend/middleware/sessionMiddleware.test.js` | Passed |
+| `guestAuth` Fail-Closed Status | 401 PARTICIPANT_REMOVED when participant status is anything other than "approved" or "pending" | `backend/middleware/sessionMiddleware.test.js` & `backend/routes/sessionRoutes.test.js` | Passed |
 
 ## Table Session Integration Routes (`/api/sessions`) Test Checklist (Task 9a)
 
@@ -254,6 +255,11 @@ All automated tests adhere to project testing rules:
 | `GET /api/sessions/menu` (Dynamic safety recalculation) | Subsequent `/allergies` updates immediately reflect on next `/menu` call | `backend/routes/sessionRoutes.test.js` | Passed |
 | `GET /api/sessions/menu` (Taxonomy ordering) | Items sorted by category ascending then name ascending | `backend/routes/sessionRoutes.test.js` | Passed |
 | Indian scripts & Nickname rules | Supports Hindi (`रवि`), Gujarati (`અમિત`), punctuation (`O'Connor-Smith Jr.`), collapses internal whitespace | `backend/routes/sessionRoutes.test.js` | Passed |
+| `POST /api/sessions/join` (Create race retry) | TableSession.create losing race once (E11000) recovers and succeeds as host (201) | `backend/routes/sessionRoutes.test.js` | Passed |
+| `POST /api/sessions/join` (Create race exhaustion) | TableSession.create always losing race answers 503 TRY_AGAIN and no 500 | `backend/routes/sessionRoutes.test.js` | Passed |
+| `POST /api/sessions/join` (Pending push retry) | updateOne matching 0 once recovers and succeeds as pending (201) | `backend/routes/sessionRoutes.test.js` | Passed |
+| `POST /api/sessions/join` (Pending push exhaustion) | updateOne continuously matching 0 answers 503 TRY_AGAIN | `backend/routes/sessionRoutes.test.js` | Passed |
+| `POST /api/sessions/allergies` (Session closed race) | updateOne matching 0 (session closed in between) answers 401 SESSION_CLOSED | `backend/routes/sessionRoutes.test.js` | Passed |
 
 ## Known gaps
 
@@ -277,4 +283,6 @@ All automated tests adhere to project testing rules:
 | Phone numbers are not verified (no SMS code): anyone with the QR and any number can request to join, and the only protection against impersonation is host or staff approval | SMS verification is future scope and must be stated in the report | Architecture limitation | open |
 | The join endpoint has no rate limit, so someone with a QR photo can flood a table with requests (each expires after 10 minutes and a table holds 12 people) | hardening part 2 (needs express-rate-limit, needs my approval) | Security limitation | open |
 | Data protection: phone numbers are stored only while a session is open, erased when it closes and masked in every response; describe this in the report (India's DPDP Act is the reason) | final report | `sessionRoutes.test.js` and `tableSessionIndex.test.js` | open |
+| Someone holding a QR photo can learn whether a given phone number is currently seated at this restaurant, because the 409 answers reveal it | rate limiting (hardening part 2) and SMS verification (future scope); state it in the report | pending | open |
+| Phone uniqueness is enforced across the whole database, not per restaurant; fine for one restaurant | scope it per restaurant when multi-restaurant support is built; state it in the report | pending | open |
 

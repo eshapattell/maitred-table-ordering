@@ -8,7 +8,6 @@ import { normalisePhone } from '../utils/phone.js';
 import {
   SESSION_LIMITS,
   isPendingExpired,
-  countedParticipants,
   decideJoin,
   sanitiseNickname,
   selfParticipant,
@@ -62,36 +61,22 @@ export const joinSession = async (req, res, next) => {
     if (!restaurantId || !mongoose.isObjectIdOrHexString(restaurantId)) {
       return res.status(400).json({ message: 'Invalid restaurantId', code: 'INVALID_INPUT' });
     }
-
-    if (
-      typeof tableNumber !== 'number' ||
-      !Number.isInteger(tableNumber) ||
-      tableNumber < 1 ||
-      tableNumber > 500
-    ) {
+    if (typeof tableNumber !== 'number' || !Number.isInteger(tableNumber) || tableNumber < 1 || tableNumber > 500) {
       return res.status(400).json({ message: 'Invalid tableNumber', code: 'INVALID_INPUT' });
     }
-
     if (typeof qrToken !== 'string' || !/^[0-9a-f]{32}$/.test(qrToken)) {
       return res.status(400).json({ message: 'Invalid qrToken', code: 'INVALID_INPUT' });
     }
-
     const normalisedPhone = normalisePhone(phone);
     if (!normalisedPhone) {
       return res.status(400).json({ message: 'Please enter a valid Indian mobile number', code: 'INVALID_INPUT' });
     }
-
     const cleanedNickname = sanitiseNickname(nickname);
     if (!cleanedNickname) {
       return res.status(400).json({ message: 'Invalid nickname', code: 'INVALID_INPUT' });
     }
 
-    const table = await Table.findOne({
-      restaurantId,
-      number: tableNumber,
-      qrToken,
-    }).lean();
-
+    const table = await Table.findOne({ restaurantId, number: tableNumber, qrToken }).lean();
     if (!table) {
       return res.status(404).json({ message: 'This table link is not valid', code: 'TABLE_NOT_FOUND' });
     }
@@ -101,7 +86,6 @@ export const joinSession = async (req, res, next) => {
       'participants.phone': normalisedPhone,
       tableId: { $ne: table._id },
     });
-
     if (phoneActiveElsewhere) {
       return res.status(409).json({
         code: 'PHONE_ACTIVE_ELSEWHERE',
@@ -109,107 +93,71 @@ export const joinSession = async (req, res, next) => {
       });
     }
 
-    let session = await TableSession.findOne({
-      tableId: table._id,
-      status: 'open',
-    }).lean();
+    // Viva note: decide and write, looking at fresh data each time. If another request changes
+    // the table between our read and our write, our conditional write matches nothing or hits a
+    // unique index. We then simply look again (at most 3 times) instead of guessing.
+    const MAX_ATTEMPTS = 3;
+    let joined = null; // { sessionId, participant }
+    for (let attempt = 0; attempt < MAX_ATTEMPTS && !joined; attempt++) {
+      const now = new Date();
+      const session = await TableSession.findOne({ tableId: table._id, status: 'open' }).lean();
+      const decision = decideJoin({ session, now, phone: normalisedPhone });
 
-    const now = new Date();
-    let decision = decideJoin({ session, now, phone: normalisedPhone });
-
-    if (decision.outcome === 'replace-idle') {
-      await closeSession(session._id, 'timeout', now);
-      session = null;
-      decision = { outcome: 'create' };
-    }
-
-    let createdSessionId = null;
-    let participantResult = null;
-
-    if (decision.outcome === 'already-joined') {
-      return res.status(409).json({
-        code: 'ALREADY_JOINED',
-        message: 'This number has already joined this table. Ask the host or staff to remove the old entry.',
-      });
-    }
-
-    if (decision.outcome === 'full') {
-      return res.status(409).json({
-        code: 'TABLE_FULL',
-        message: 'This table is full',
-      });
-    }
-
-    if (decision.outcome === 'create') {
-      const participantId = crypto.randomUUID();
-      const hostParticipant = {
-        id: participantId,
-        nickname: cleanedNickname,
-        phone: normalisedPhone,
-        role: 'host',
-        status: 'approved',
-        allergiesDeclared: false,
-        joinedAt: now,
-      };
-
-      try {
-        const createdSession = await TableSession.create({
-          tableId: table._id,
-          restaurantId: table.restaurantId,
-          status: 'open',
-          hostId: participantId,
-          lastActivityAt: now,
-          participants: [hostParticipant],
-        });
-        createdSessionId = createdSession._id;
-        participantResult = hostParticipant;
-      } catch (err) {
-        if (err && err.code === 11000) {
-          if (err.keyPattern && err.keyPattern['participants.phone']) {
-            return res.status(409).json({
-              code: 'PHONE_ACTIVE_ELSEWHERE',
-              message: 'This number is already seated at another table',
-            });
-          }
-          if (err.keyPattern && err.keyPattern.tableId) {
-            // Someone created the session a moment earlier, reload and handle once as a normal join
-            session = await TableSession.findOne({ tableId: table._id, status: 'open' }).lean();
-            decision = decideJoin({ session, now, phone: normalisedPhone });
-          } else {
-            return next(err);
-          }
-        } else {
-          return next(err);
-        }
-      }
-    }
-
-    if (!createdSessionId) {
       if (decision.outcome === 'already-joined') {
         return res.status(409).json({
           code: 'ALREADY_JOINED',
           message: 'This number has already joined this table. Ask the host or staff to remove the old entry.',
         });
       }
-
       if (decision.outcome === 'full') {
-        return res.status(409).json({
-          code: 'TABLE_FULL',
-          message: 'This table is full',
-        });
+        return res.status(409).json({ code: 'TABLE_FULL', message: 'This table is full' });
       }
 
-      if (decision.outcome === 'pending') {
+      if (decision.outcome === 'create' || decision.outcome === 'replace-idle') {
+        if (decision.outcome === 'replace-idle') {
+          await closeSession(session._id, 'timeout', now);
+        }
+        const host = {
+          id: crypto.randomUUID(),
+          nickname: cleanedNickname,
+          phone: normalisedPhone,
+          role: 'host',
+          status: 'approved',
+          allergiesDeclared: false,
+          joinedAt: now,
+        };
+        try {
+          const created = await TableSession.create({
+            tableId: table._id,
+            restaurantId: table.restaurantId,
+            status: 'open',
+            hostId: host.id,
+            lastActivityAt: now,
+            participants: [host],
+          });
+          joined = { sessionId: created._id, participant: host };
+        } catch (err) {
+          if (err && err.code === 11000 && err.keyPattern && err.keyPattern['participants.phone']) {
+            return res.status(409).json({
+              code: 'PHONE_ACTIVE_ELSEWHERE',
+              message: 'This number is already seated at another table',
+            });
+          }
+          if (err && err.code === 11000 && err.keyPattern && err.keyPattern.tableId) {
+            continue; // someone created the session a moment earlier: decide again
+          }
+          return next(err);
+        }
+      } else {
+        // outcome "pending"
         if (decision.expiredIds && decision.expiredIds.length > 0) {
           await TableSession.updateOne(
             { _id: session._id, status: 'open' },
             { $pull: { participants: { id: { $in: decision.expiredIds }, status: 'pending' } } }
           );
         }
-
-        const participantId = crypto.randomUUID();
-        const pendingParticipant = {
-          id: participantId,
+        const guest = {
+          id: crypto.randomUUID(),
           nickname: cleanedNickname,
           phone: normalisedPhone,
           role: 'guest',
@@ -217,20 +165,16 @@ export const joinSession = async (req, res, next) => {
           allergiesDeclared: false,
           joinedAt: now,
         };
-
-        let updateResult;
+        let update;
         try {
-          updateResult = await TableSession.updateOne(
+          update = await TableSession.updateOne(
             {
               _id: session._id,
               status: 'open',
               'participants.phone': { $ne: normalisedPhone },
               $expr: { $lt: [{ $size: '$participants' }, SESSION_LIMITS.maxParticipants] },
             },
-            {
-              $push: { participants: pendingParticipant },
-              $set: { lastActivityAt: now },
-            }
+            { $push: { participants: guest }, $set: { lastActivityAt: now } }
           );
         } catch (err) {
           if (err && err.code === 11000 && err.keyPattern && err.keyPattern['participants.phone']) {
@@ -241,89 +185,32 @@ export const joinSession = async (req, res, next) => {
           }
           return next(err);
         }
-
-        if (updateResult.matchedCount === 0) {
-          const reread = await TableSession.findById(session._id).lean();
-          if (!reread || reread.status !== 'open') {
-            const newHostId = crypto.randomUUID();
-            const newHost = {
-              id: newHostId,
-              nickname: cleanedNickname,
-              phone: normalisedPhone,
-              role: 'host',
-              status: 'approved',
-              allergiesDeclared: false,
-              joinedAt: now,
-            };
-            try {
-              const freshSession = await TableSession.create({
-                tableId: table._id,
-                restaurantId: table.restaurantId,
-                status: 'open',
-                hostId: newHostId,
-                lastActivityAt: now,
-                participants: [newHost],
-              });
-              createdSessionId = freshSession._id;
-              participantResult = newHost;
-            } catch (createErr) {
-              if (createErr && createErr.code === 11000 && createErr.keyPattern && createErr.keyPattern['participants.phone']) {
-                return res.status(409).json({
-                  code: 'PHONE_ACTIVE_ELSEWHERE',
-                  message: 'This number is already seated at another table',
-                });
-              }
-              return next(createErr);
-            }
-          } else if (
-            (reread.participants || []).some(
-              (p) => p && p.phone === normalisedPhone && !isPendingExpired(p, now)
-            )
-          ) {
-            return res.status(409).json({
-              code: 'ALREADY_JOINED',
-              message: 'This number has already joined this table. Ask the host or staff to remove the old entry.',
-            });
-          } else if (countedParticipants(reread, now) >= SESSION_LIMITS.maxParticipants) {
-            return res.status(409).json({
-              code: 'TABLE_FULL',
-              message: 'This table is full',
-            });
-          } else {
-            return next(new Error('Conditional join update failed unexpectedly'));
-          }
-        } else {
-          createdSessionId = session._id;
-          participantResult = pendingParticipant;
+        if (update.matchedCount > 0) {
+          joined = { sessionId: session._id, participant: guest };
         }
+        // otherwise the session changed under us (closed, full, or this number just appeared): decide again
       }
     }
 
-    // Join-side half of table delete race fix
+    if (!joined) {
+      return res.status(503).json({ message: 'Please try again in a moment', code: 'TRY_AGAIN' });
+    }
+
+    // Join-side half of the table-delete race fix
     const tableStillExists = await Table.exists({ _id: table._id });
     if (!tableStillExists) {
-      if (createdSessionId) {
-        await closeSession(createdSessionId, 'table-removed', now);
-      }
-      return res.status(404).json({
-        message: 'This table link is not valid',
-        code: 'TABLE_NOT_FOUND',
-      });
+      await closeSession(joined.sessionId, 'table-removed', new Date());
+      return res.status(404).json({ message: 'This table link is not valid', code: 'TABLE_NOT_FOUND' });
     }
 
     const token = generateGuestToken({
-      sessionId: String(createdSessionId),
-      participantId: String(participantResult.id),
+      sessionId: String(joined.sessionId),
+      participantId: String(joined.participant.id),
     });
-
     return res.status(201).json({
       token,
-      participant: selfParticipant(participantResult),
-      session: {
-        id: String(createdSessionId),
-        tableNumber: table.number,
-        status: 'open',
-      },
+      participant: selfParticipant(joined.participant),
+      session: { id: String(joined.sessionId), tableNumber: table.number, status: 'open' },
     });
   } catch (err) {
     next(err);
@@ -397,7 +284,7 @@ export const declareAllergies = async (req, res, next) => {
 
     const storedAllergies = normaliseAllergies(allergies);
 
-    await TableSession.updateOne(
+    const updateResult = await TableSession.updateOne(
       { _id: req.guest.sessionId, status: 'open' },
       {
         $set: {
@@ -407,6 +294,13 @@ export const declareAllergies = async (req, res, next) => {
       },
       { arrayFilters: [{ 'p.id': req.guest.participant.id }] }
     );
+
+    if (updateResult.matchedCount === 0) {
+      return res.status(401).json({
+        message: 'This table session has ended',
+        code: 'SESSION_CLOSED',
+      });
+    }
 
     const updatedParticipant = {
       ...req.guest.participant,

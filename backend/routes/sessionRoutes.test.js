@@ -1177,4 +1177,190 @@ describe('Table Session Routes (/api/sessions)', () => {
       expect(res.body.participant.nickname).toBe('Ravi Kumar');
     });
   });
+
+  describe('Task 9a-fix tests: concurrency retries, fail closed, and allergy update match guard', () => {
+    test('join, create loses the race once: recovers, answers 201 role "host", exactly one open session, no 500', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const phone = '9824090001';
+      const duplicateErr = Object.assign(new Error('E11000'), {
+        code: 11000,
+        keyPattern: { tableId: 1 },
+      });
+      const createSpy = jest.spyOn(TableSession, 'create').mockRejectedValueOnce(duplicateErr);
+
+      try {
+        const res = await join(table, phone, 'Racer');
+        expect(res.status).toBe(201);
+        expect(res.body.participant.role).toBe('host');
+
+        const openSessions = await TableSession.find({ tableId: table._id, status: 'open' });
+        expect(openSessions).toHaveLength(1);
+      } finally {
+        createSpy.mockRestore();
+        await TableSession.updateMany(
+          { 'participants.phone': '+919824090001', status: 'open' },
+          { $set: { status: 'closed', 'participants.$[].phone': null } }
+        );
+      }
+    });
+
+    test('join, create always loses the race: answers 503 TRY_AGAIN and no 500', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const phone = '9824090002';
+      const duplicateErr = Object.assign(new Error('E11000'), {
+        code: 11000,
+        keyPattern: { tableId: 1 },
+      });
+      const createSpy = jest.spyOn(TableSession, 'create').mockRejectedValue(duplicateErr);
+
+      try {
+        const res = await join(table, phone, 'Racer2');
+        expect(res.status).toBe(503);
+        expect(res.body).toEqual({
+          message: 'Please try again in a moment',
+          code: 'TRY_AGAIN',
+        });
+      } finally {
+        createSpy.mockRestore();
+      }
+    });
+
+    test('join, the pending push matches nothing once: recovers, answers 201 pending, session has exactly one entry for that phone', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const hostRes = await join(table, '9824090003', 'HostUser');
+      expect(hostRes.status).toBe(201);
+
+      const origUpdateOne = TableSession.updateOne.bind(TableSession);
+      let exprFailedOnce = false;
+      const updateSpy = jest.spyOn(TableSession, 'updateOne').mockImplementation((filter, doc, options) => {
+        if (filter && filter.$expr && !exprFailedOnce) {
+          exprFailedOnce = true;
+          return Promise.resolve({ matchedCount: 0, modifiedCount: 0 });
+        }
+        return origUpdateOne(filter, doc, options);
+      });
+
+      try {
+        const guestRes = await join(table, '9824090004', 'GuestUser');
+        expect(guestRes.status).toBe(201);
+        expect(guestRes.body.participant.status).toBe('pending');
+        expect(guestRes.body.participant.role).toBe('guest');
+
+        const session = await TableSession.findById(hostRes.body.session.id);
+        const matchingEntries = session.participants.filter(
+          (p) => p.phone === '+919824090004'
+        );
+        expect(matchingEntries).toHaveLength(1);
+      } finally {
+        updateSpy.mockRestore();
+        await TableSession.updateMany(
+          { 'participants.phone': { $in: ['+919824090003', '+919824090004'] }, status: 'open' },
+          { $set: { status: 'closed', 'participants.$[].phone': null } }
+        );
+      }
+    });
+
+    test('join, the pending push keeps matching nothing (every time): answers 503 TRY_AGAIN', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const hostRes = await join(table, '9824090005', 'HostUser');
+      expect(hostRes.status).toBe(201);
+
+      const origUpdateOne = TableSession.updateOne.bind(TableSession);
+      const updateSpy = jest.spyOn(TableSession, 'updateOne').mockImplementation((filter, doc, options) => {
+        if (filter && filter.$expr) {
+          return Promise.resolve({ matchedCount: 0, modifiedCount: 0 });
+        }
+        return origUpdateOne(filter, doc, options);
+      });
+
+      try {
+        const guestRes = await join(table, '9824090006', 'GuestUser');
+        expect(guestRes.status).toBe(503);
+        expect(guestRes.body).toEqual({
+          message: 'Please try again in a moment',
+          code: 'TRY_AGAIN',
+        });
+      } finally {
+        updateSpy.mockRestore();
+        await TableSession.updateMany(
+          { 'participants.phone': { $in: ['+919824090005', '+919824090006'] }, status: 'open' },
+          { $set: { status: 'closed', 'participants.$[].phone': null } }
+        );
+      }
+    });
+
+    test('guestAuth fail closed: set participant status to "weird" with collection.updateOne: any guest route answers 401 PARTICIPANT_REMOVED', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const hostRes = await join(table, '9824090007', 'HostWeird');
+      expect(hostRes.status).toBe(201);
+      const token = hostRes.body.token;
+      const participantId = hostRes.body.participant.id;
+      const sessionId = hostRes.body.session.id;
+
+      // Bypass Mongoose schema validation by using direct collection update
+      await TableSession.collection.updateOne(
+        { _id: new mongoose.Types.ObjectId(sessionId), 'participants.id': participantId },
+        { $set: { 'participants.$.status': 'weird' } }
+      );
+
+      // Verify guest routes answer 401 PARTICIPANT_REMOVED
+      const meRes = await request(app)
+        .get('/api/sessions/me')
+        .set('Authorization', `Bearer ${token}`);
+      expect(meRes.status).toBe(401);
+      expect(meRes.body).toEqual({
+        message: 'You are no longer part of this table',
+        code: 'PARTICIPANT_REMOVED',
+      });
+
+      const allergyRes = await request(app)
+        .post('/api/sessions/allergies')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ allergies: [] });
+      expect(allergyRes.status).toBe(401);
+      expect(allergyRes.body).toEqual({
+        message: 'You are no longer part of this table',
+        code: 'PARTICIPANT_REMOVED',
+      });
+
+      await TableSession.updateMany(
+        { 'participants.phone': '+919824090007', status: 'open' },
+        { $set: { status: 'closed', 'participants.$[].phone': null } }
+      );
+    });
+
+    test('allergies, session closes in between: updateOne matches nothing answers 401 SESSION_CLOSED', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const hostRes = await join(table, '9824090008', 'HostAllergy');
+      expect(hostRes.status).toBe(201);
+      const token = hostRes.body.token;
+
+      const origUpdateOne = TableSession.updateOne.bind(TableSession);
+      const updateSpy = jest.spyOn(TableSession, 'updateOne').mockImplementation((filter, doc, options) => {
+        if (doc && doc.$set && 'participants.$[p].allergies' in doc.$set) {
+          return Promise.resolve({ matchedCount: 0, modifiedCount: 0 });
+        }
+        return origUpdateOne(filter, doc, options);
+      });
+
+      try {
+        const allergyRes = await request(app)
+          .post('/api/sessions/allergies')
+          .set('Authorization', `Bearer ${token}`)
+          .send({ allergies: ['dairy'] });
+
+        expect(allergyRes.status).toBe(401);
+        expect(allergyRes.body).toEqual({
+          message: 'This table session has ended',
+          code: 'SESSION_CLOSED',
+        });
+      } finally {
+        updateSpy.mockRestore();
+        await TableSession.updateMany(
+          { 'participants.phone': '+919824090008', status: 'open' },
+          { $set: { status: 'closed', 'participants.$[].phone': null } }
+        );
+      }
+    });
+  });
 });

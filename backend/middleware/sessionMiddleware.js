@@ -123,6 +123,14 @@ export const guestAuth = ({ allowPending = false } = {}) => {
         }
       }
 
+      // Fail closed on participant status: a status we do not recognise must never grant access.
+      if (participant.status !== 'approved' && participant.status !== 'pending') {
+        return res.status(401).json({
+          message: 'You are no longer part of this table',
+          code: 'PARTICIPANT_REMOVED',
+        });
+      }
+
       // g. Touch the session: at most one write a minute
       const sixtySecondsAgo = new Date(now.getTime() - 60 * 1000);
       await TableSession.updateOne(
