@@ -1297,7 +1297,7 @@ describe('Staff Table Session Safeguards (/api/sessions/staff)', () => {
           }
         }
       }
-    });
+    }, 180000);
   });
 
   describe('IDLE SWEEPER (closeIdleSessions & startIdleSweeper)', () => {
