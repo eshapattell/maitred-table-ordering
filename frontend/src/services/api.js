@@ -7,9 +7,9 @@ import { STORAGE_KEYS, EVENTS } from "../utils/constants.js";
  * The JWT token is kept in sessionStorage so that it automatically disappears when the
  * browser tab is closed, preventing persistent leakage on shared restaurant devices.
  * However, because sessionStorage is accessible to any script executing on the page,
- * it remains vulnerable to Cross-Site Scripting (XSS). This risk is mitigated through
- * strict Content-Security-Policy (CSP) headers, zero unsafe HTML injections, and keeping
- * frontend dependencies minimal.
+ * it remains vulnerable to Cross-Site Scripting (XSS). This risk is reduced by never
+ * injecting HTML from data and by keeping dependencies minimal; a strict Content-Security-Policy
+ * still has to be added at deployment (see the Known gaps table in docs/TESTING.md).
  */
 const api = axios.create({
   baseURL: "/api",

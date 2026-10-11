@@ -127,6 +127,7 @@ a:hover {
   margin: 0 auto;
   padding: var(--space-3) var(--space-4);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
@@ -148,12 +149,15 @@ a:hover {
 
 .navbar-content {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-4);
+  row-gap: var(--space-2);
 }
 
 .navbar-links {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
 }
@@ -193,6 +197,17 @@ a:hover {
 
 .navbar-userrole {
   color: var(--color-text-muted);
+}
+
+@media (max-width: 40rem) {
+  .navbar-content {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .navbar-userrole {
+    display: none;
+  }
 }
 
 /* Buttons */
@@ -241,6 +256,12 @@ a:hover {
 }
 
 /* Forms and fields */
+.login-page {
+  display: flex;
+  justify-content: center;
+  padding: 0 var(--space-4);
+}
+
 .form-card {
   max-width: 26rem;
   width: 100%;

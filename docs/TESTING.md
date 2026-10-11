@@ -317,6 +317,9 @@ cd frontend
 npm run build
 ```
 
+Manual checks:
+- Navbar wraps on narrow screens: manual check at 375 px width, no sideways scrolling
+
 | Component / Utility | Test Description | Test File | Status |
 | :--- | :--- | :--- | :--- |
 | Allergens Taxonomy (`ALLERGENS`, `ALLERGEN_VALUES`) | Matches backend `KNOWN_ALLERGENS` exactly in values and order; non-empty capitalized labels; frozen arrays | `frontend/src/utils/allergens.test.js` | Passed |
