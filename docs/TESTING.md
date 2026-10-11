@@ -291,6 +291,50 @@ All automated tests adhere to project testing rules:
 | `startIdleSweeper` (Success logging) | On closed > 0 logs "[maitred] closed N idle table session(s)" via console.log; on closed 0 logs nothing | `backend/routes/sessionStaffRoutes.test.js` | Passed |
 | Server Startup Sweeper Wiring | server.js calls startIdleSweeper() exactly once after server.listen, guarded by NODE_ENV !== 'test' | `backend/routes/sessionStaffRoutes.test.js` | Passed |
 
+## Bill Splitting Engine (`backend/utils/splitBill.js`) Test Checklist
+
+| Feature / Logic | Expected Result | Test File | Status |
+| :--- | :--- | :--- | :--- |
+| `SPLIT_MODES` Definition | Exports frozen array `['equal', 'item', 'custom']` matching Bill model enum | `backend/utils/splitBill.test.js` | Passed |
+| Currency Conversion (`toPaise` & `toRupees`) | Converts INR currency safely avoiding IEEE-754 traps; rejects negatives, non-finite, and decimals beyond 2 places; round-trips 5,000 random paise values | `backend/utils/splitBill.test.js` | Passed |
+| Order Total Calculation (`orderTotal`) | Sums item subtotals (price * qty) in paise and returns exact rupee total | `backend/utils/splitBill.test.js` | Passed |
+| Equal Split (`splitEqual`) | Distributes total evenly to the paisa; remainder paise allocated 1p each to earliest diners; sum of shares equals order total across thousands of random cases | `backend/utils/splitBill.test.js` | Passed |
+| Split by Item (`splitByItem`) | Item claimed by diner allocated to that diner; item shared by multiple diners split equally; sum of shares matches bill total | `backend/utils/splitBill.test.js` | Passed |
+| Custom Split (`splitCustom`) | Validates custom allocations; rejects when sum does not equal total to the paisa; returns Bill-shaped share array | `backend/utils/splitBill.test.js` | Passed |
+| Bill Splitting Facade (`splitBill`) | Routes dynamically by splitMode ('equal', 'item', 'custom'); produces valid Bill model payload structure | `backend/utils/splitBill.test.js` | Passed |
+
+## Frontend Foundation & Staff Authentication Test Checklist (Task 8a)
+
+How to run frontend test suite:
+```bash
+cd frontend
+npm test
+```
+
+To run production build check:
+```bash
+cd frontend
+npm run build
+```
+
+| Component / Utility | Test Description | Test File | Status |
+| :--- | :--- | :--- | :--- |
+| Allergens Taxonomy (`ALLERGENS`, `ALLERGEN_VALUES`) | Matches backend `KNOWN_ALLERGENS` exactly in values and order; non-empty capitalized labels; frozen arrays | `frontend/src/utils/allergens.test.js` | Passed |
+| Currency Formatter (`formatPrice`) | Formats INR values (₹250, ₹1,800, ₹2,50,000); returns empty string on non-finite, null, or invalid input | `frontend/src/utils/formatters.test.js` | Passed |
+| Route Definitions & Paths (`ROUTE_PATHS`, `homePathFor`) | Role-based redirection resolver (`owner` -> `/owner/menu`, `kitchen` -> `/kitchen`, fallback -> `/login`) | `frontend/src/utils/routePaths.test.js` | Passed |
+| Project Constants & Design Scanner | "î" only in APP_NAME (`constants.js`); index.html title `<title>MaîtreD</title>`; zero color literals in src `.js`/`.jsx`; all design tokens in index.css | `frontend/src/utils/constants.test.js` | Passed |
+| Import Casing Validator | Verifies every relative import below `src` matches filesystem directory/file casing with exact letter case | `frontend/src/utils/importCase.test.js` | Passed |
+| Axios API Client & Interceptors (`api.js`) | Bearer header attached with token; 401 on auth request removes token & fires `UNAUTHORISED`; 401 on unauth request does not remove token; 500 keeps token | `frontend/src/services/api.test.js` | Passed |
+| Auth Service (`authService.js`) | `login` posts credentials to `/auth/login`; `fetchCurrentUser` queries `/auth/me`; propagates errors | `frontend/src/services/authService.test.js` | Passed |
+| Auth Context & Lifecycle (`AuthContext.jsx`) | Anonymous on mount without token; fetchCurrentUser on token; clears token on 401; preserves token on network failure; logout clears token; listens to `UNAUTHORISED` | `frontend/src/context/AuthContext.test.jsx` | Passed |
+| Route Guards (`ProtectedRoute.jsx`) | Anonymous redirects to login; loading renders Loader; unauthorized role redirects to role home; authorized user renders children | `frontend/src/routes/ProtectedRoute.test.jsx` | Passed |
+| App Routes Switchboard (`AppRoutes`) | Root redirects role to home; authenticated user on `/login` redirects home; unknown route renders NotFound | `frontend/src/routes/index.test.jsx` | Passed |
+| Staff Sign-in Screen (`Login.jsx`) | Accessible inputs; trims email; handles 401 (invalid) and 400 (required); network/500/429 (unavailable); clears password; hides server messages; zero credential leaks | `frontend/src/pages/Login.test.jsx` | Passed |
+| Button Component (`Button.jsx`) | Primary and ghost variants; loading disables & sets aria-busy; disabled prevents onClick handler | `frontend/src/Components/Common/Button.test.jsx` | Passed |
+| Error Message Banner (`ErrorMessage.jsx`) | Role `alert`; displays text message; renders null when children empty | `frontend/src/Components/Common/ErrorMessage.test.jsx` | Passed |
+| Loader Component (`Loader.jsx`) | Role `status`; quiet understated copy | `frontend/src/Components/Common/Loader.test.jsx` | Passed |
+| Navigation Header (`Navbar.jsx`) | Anonymous sees brand only; authenticated owner sees menu & tables links + sign-out; kitchen sees kitchen link + sign-out; logout triggers sign-out | `frontend/src/Components/Common/Navbar.test.jsx` | Passed |
+
 ## Known gaps
 
 | Gap | Closed by | Proven by | Status |
@@ -304,7 +348,8 @@ All automated tests adhere to project testing rules:
 | $inc skips the min 1 rule on cart qty | cart task | pending | open |
 | Guest allergies must be declared before any cart action (allergiesDeclared) | Enforced for guest menu in Task 9a (`requireAllergiesDeclared`); cart task must apply `requireAllergiesDeclared` to cart mutations | `sessionMiddleware.test.js` and `sessionRoutes.test.js` | half closed |
 | Unique open-session index is declared but not proven against the real database | Task 7 | tableSessionIndex.test.js | closed (Task 7) |
-| Frontend allergen list must match KNOWN_ALLERGENS exactly | frontend foundation task | pending | open |
+| Frontend allergen list must match KNOWN_ALLERGENS exactly | Task 8a (frontend foundation) | allergens.test.js | closed (Task 8a) |
+| The auth token lives in sessionStorage, readable by any script that runs on the page | deployment and final review: add a Content-Security-Policy, keep dependencies minimal, never render HTML from data | pending | open |
 | npm audit: review production dependencies before submission | final review | pending | open |
 | Public menu returns raw allergen tags: guest screens must use the server-computed safe flag from the session menu and never compute safety in the client | Server-computed flag implemented in `GET /api/sessions/menu` (Task 9a); frontend guest view must consume this endpoint | `sessionRoutes.test.js` | half closed |
 | Menu item names are not unique per restaurant (needs a unique index, which is a model change) | hardening task | pending | open |

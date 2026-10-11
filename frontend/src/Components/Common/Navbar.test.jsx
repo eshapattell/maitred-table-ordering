@@ -1,0 +1,87 @@
+import React from "react";
+import { describe, test, expect, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
+import { AuthContext } from "../../context/AuthContext.jsx";
+import Navbar from "./Navbar.jsx";
+import { APP_NAME } from "../../utils/constants.js";
+import { MESSAGES } from "../../utils/messages.js";
+import { ROUTE_PATHS } from "../../utils/routePaths.js";
+
+const renderNavbar = (authValue) => {
+  return render(
+    <AuthContext.Provider value={authValue}>
+      <MemoryRouter>
+        <Navbar />
+      </MemoryRouter>
+    </AuthContext.Provider>
+  );
+};
+
+describe("Navbar component", () => {
+  test("anonymous user sees the brand and no navigation links or sign-out button", () => {
+    renderNavbar({ status: "anonymous", user: null, logout: vi.fn() });
+
+    expect(screen.getByRole("link", { name: APP_NAME })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: MESSAGES.auth.signOut })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: MESSAGES.nav.menu })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: MESSAGES.nav.tables })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: MESSAGES.nav.kitchen })).not.toBeInTheDocument();
+  });
+
+  test("an owner sees the name, the role, both owner links and sign-out button", () => {
+    const logoutMock = vi.fn();
+    renderNavbar({
+      status: "authenticated",
+      user: { id: "u1", name: "Ravi Kumar", role: "owner" },
+      logout: logoutMock,
+    });
+
+    expect(screen.getByRole("link", { name: APP_NAME })).toBeInTheDocument();
+    expect(screen.getByText("Ravi Kumar")).toBeInTheDocument();
+    expect(screen.getByText("(owner)")).toBeInTheDocument();
+
+    const menuLink = screen.getByRole("link", { name: MESSAGES.nav.menu });
+    const tablesLink = screen.getByRole("link", { name: MESSAGES.nav.tables });
+    expect(menuLink).toHaveAttribute("href", ROUTE_PATHS.OWNER_MENU);
+    expect(tablesLink).toHaveAttribute("href", ROUTE_PATHS.OWNER_TABLES);
+
+    expect(screen.queryByRole("link", { name: MESSAGES.nav.kitchen })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: MESSAGES.auth.signOut })).toBeInTheDocument();
+  });
+
+  test("clicking sign-out button calls logout handler", async () => {
+    const user = userEvent.setup();
+    const logoutMock = vi.fn();
+    renderNavbar({
+      status: "authenticated",
+      user: { id: "u1", name: "Ravi Kumar", role: "owner" },
+      logout: logoutMock,
+    });
+
+    const signOutBtn = screen.getByRole("button", { name: MESSAGES.auth.signOut });
+    await user.click(signOutBtn);
+
+    expect(logoutMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a kitchen user sees only the kitchen link and sign-out button", () => {
+    renderNavbar({
+      status: "authenticated",
+      user: { id: "u2", name: "Chef Anita", role: "kitchen" },
+      logout: vi.fn(),
+    });
+
+    expect(screen.getByRole("link", { name: APP_NAME })).toBeInTheDocument();
+    expect(screen.getByText("Chef Anita")).toBeInTheDocument();
+    expect(screen.getByText("(kitchen)")).toBeInTheDocument();
+
+    const kitchenLink = screen.getByRole("link", { name: MESSAGES.nav.kitchen });
+    expect(kitchenLink).toHaveAttribute("href", ROUTE_PATHS.KITCHEN);
+
+    expect(screen.queryByRole("link", { name: MESSAGES.nav.menu })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: MESSAGES.nav.tables })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: MESSAGES.auth.signOut })).toBeInTheDocument();
+  });
+});
