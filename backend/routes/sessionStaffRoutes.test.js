@@ -1038,6 +1038,266 @@ describe('Staff Table Session Safeguards (/api/sessions/staff)', () => {
       const res = await request(app).post(`/api/sessions/staff/${new mongoose.Types.ObjectId()}/participants/p1/remove`);
       expect(res.status).toBe(401);
     });
+
+    test('host removal race, successor removed: promotes the other approved guest', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const hostRes = await join(table, '9824100070', 'HostRaceRem');
+      const g1Res = await join(table, '9824100071', 'GuestRaceRem1');
+      const g2Res = await join(table, '9824100072', 'GuestRaceRem2');
+      const sessionId = hostRes.body.session.id;
+      const hostId = hostRes.body.participant.id;
+      const g1Id = g1Res.body.participant.id;
+      const g2Id = g2Res.body.participant.id;
+
+      await request(app)
+        .post(`/api/sessions/staff/${sessionId}/participants/${g1Id}/approve`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+      await request(app)
+        .post(`/api/sessions/staff/${sessionId}/participants/${g2Id}/approve`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+
+      await TableSession.updateOne(
+        { _id: sessionId, 'participants.id': g1Id },
+        { $set: { 'participants.$.joinedAt': new Date(Date.now() - 5000) } }
+      );
+      await TableSession.updateOne(
+        { _id: sessionId, 'participants.id': g2Id },
+        { $set: { 'participants.$.joinedAt': new Date(Date.now() - 2000) } }
+      );
+
+      const origUpdateOne = TableSession.updateOne.bind(TableSession);
+      let raceDone = false;
+      const updateSpy = jest.spyOn(TableSession, 'updateOne').mockImplementation(async (filter, doc, options) => {
+        if (filter && filter.participants && filter.participants.$elemMatch && !raceDone) {
+          raceDone = true;
+          const successorId = filter.participants.$elemMatch.id;
+          await TableSession.collection.updateOne(
+            { _id: new mongoose.Types.ObjectId(sessionId) },
+            { $pull: { participants: { id: successorId } } }
+          );
+        }
+        return origUpdateOne(filter, doc, options);
+      });
+
+      try {
+        const res = await request(app)
+          .post(`/api/sessions/staff/${sessionId}/participants/${hostId}/remove`)
+          .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ message: 'Removed' });
+
+        const session = await TableSession.findById(sessionId);
+        if (session.status === 'closed') {
+          expect(session.status).toBe('closed');
+        } else {
+          expect(session.status).toBe('open');
+          const approved = session.participants.filter((p) => p.status === 'approved');
+          const hosts = approved.filter((p) => p.role === 'host');
+          expect(hosts).toHaveLength(1);
+          expect(hosts[0].id).toBe(session.hostId);
+          expect(hosts[0].id).toBe(g2Id);
+        }
+      } finally {
+        updateSpy.mockRestore();
+        await TableSession.updateOne({ _id: sessionId }, { $set: { status: 'closed', 'participants.$[].phone': null } });
+      }
+    });
+
+    test('host removal race, successor demoted: promotes the other approved guest', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const hostRes = await join(table, '9824100073', 'HostRaceDem');
+      const g1Res = await join(table, '9824100074', 'GuestRaceDem1');
+      const g2Res = await join(table, '9824100075', 'GuestRaceDem2');
+      const sessionId = hostRes.body.session.id;
+      const hostId = hostRes.body.participant.id;
+      const g1Id = g1Res.body.participant.id;
+      const g2Id = g2Res.body.participant.id;
+
+      await request(app)
+        .post(`/api/sessions/staff/${sessionId}/participants/${g1Id}/approve`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+      await request(app)
+        .post(`/api/sessions/staff/${sessionId}/participants/${g2Id}/approve`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+
+      await TableSession.updateOne(
+        { _id: sessionId, 'participants.id': g1Id },
+        { $set: { 'participants.$.joinedAt': new Date(Date.now() - 5000) } }
+      );
+      await TableSession.updateOne(
+        { _id: sessionId, 'participants.id': g2Id },
+        { $set: { 'participants.$.joinedAt': new Date(Date.now() - 2000) } }
+      );
+
+      const origUpdateOne = TableSession.updateOne.bind(TableSession);
+      let raceDone = false;
+      const updateSpy = jest.spyOn(TableSession, 'updateOne').mockImplementation(async (filter, doc, options) => {
+        if (filter && filter.participants && filter.participants.$elemMatch && !raceDone) {
+          raceDone = true;
+          const successorId = filter.participants.$elemMatch.id;
+          await TableSession.collection.updateOne(
+            { _id: new mongoose.Types.ObjectId(sessionId), 'participants.id': successorId },
+            { $set: { 'participants.$.status': 'pending' } }
+          );
+        }
+        return origUpdateOne(filter, doc, options);
+      });
+
+      try {
+        const res = await request(app)
+          .post(`/api/sessions/staff/${sessionId}/participants/${hostId}/remove`)
+          .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ message: 'Removed' });
+
+        const session = await TableSession.findById(sessionId);
+        if (session.status === 'closed') {
+          expect(session.status).toBe('closed');
+        } else {
+          expect(session.status).toBe('open');
+          const approved = session.participants.filter((p) => p.status === 'approved');
+          const hosts = approved.filter((p) => p.role === 'host');
+          expect(hosts).toHaveLength(1);
+          expect(hosts[0].id).toBe(session.hostId);
+          expect(hosts[0].id).toBe(g2Id);
+        }
+      } finally {
+        updateSpy.mockRestore();
+        await TableSession.updateOne({ _id: sessionId }, { $set: { status: 'closed', 'participants.$[].phone': null } });
+      }
+    });
+
+    test('promotion never matches: answers 200, session closed with reset and phones null', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const hostRes = await join(table, '9824100076', 'HostNoMatch');
+      const g1Res = await join(table, '9824100077', 'GuestNoMatch');
+      const sessionId = hostRes.body.session.id;
+      const hostId = hostRes.body.participant.id;
+      const g1Id = g1Res.body.participant.id;
+
+      await request(app)
+        .post(`/api/sessions/staff/${sessionId}/participants/${g1Id}/approve`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+
+      const origUpdateOne = TableSession.updateOne.bind(TableSession);
+      const updateSpy = jest.spyOn(TableSession, 'updateOne').mockImplementation(async (filter, doc, options) => {
+        if (filter && filter.participants && filter.participants.$elemMatch) {
+          return { matchedCount: 0, modifiedCount: 0 };
+        }
+        return origUpdateOne(filter, doc, options);
+      });
+
+      try {
+        const res = await request(app)
+          .post(`/api/sessions/staff/${sessionId}/participants/${hostId}/remove`)
+          .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ message: 'Removed' });
+
+        const session = await TableSession.findById(sessionId);
+        expect(session.status).toBe('closed');
+        expect(session.closedReason).toBe('reset');
+        for (const p of session.participants) {
+          expect(p.phone).toBeNull();
+        }
+      } finally {
+        updateSpy.mockRestore();
+        await TableSession.updateOne({ _id: sessionId }, { $set: { status: 'closed', 'participants.$[].phone': null } });
+      }
+    });
+
+    test('consistency property: 25 seeded random sessions invariant holds on every removal', async () => {
+      let seed = 123456789;
+      const rand = () => {
+        seed = (seed * 1664525 + 1013904223) % 4294967296;
+        return seed / 4294967296;
+      };
+      const randInt = (min, max) => Math.floor(rand() * (max - min + 1)) + min;
+
+      let phoneSeq = 100000;
+      const baseTime = Date.now() - 3600 * 1000;
+
+      for (let s = 0; s < 25; s++) {
+        const table = await makeTable(fixtures.restaurantA._id);
+        const numApproved = randInt(0, 4);
+        const numPending = randInt(0, 3);
+
+        const hostId = crypto.randomUUID();
+        const participants = [
+          {
+            id: hostId,
+            nickname: `Host${s}`,
+            role: 'host',
+            status: 'approved',
+            phone: `+9199${String(phoneSeq++).padStart(8, '0')}`,
+            joinedAt: new Date(baseTime),
+          },
+        ];
+
+        for (let a = 0; a < numApproved; a++) {
+          participants.push({
+            id: crypto.randomUUID(),
+            nickname: `Appr${s}_${a}`,
+            role: 'guest',
+            status: 'approved',
+            phone: `+9199${String(phoneSeq++).padStart(8, '0')}`,
+            joinedAt: new Date(baseTime + (a + 1) * 1000),
+          });
+        }
+
+        for (let p = 0; p < numPending; p++) {
+          participants.push({
+            id: crypto.randomUUID(),
+            nickname: `Pend${s}_${p}`,
+            role: 'guest',
+            status: 'pending',
+            phone: `+9199${String(phoneSeq++).padStart(8, '0')}`,
+            joinedAt: new Date(baseTime + (numApproved + p + 1) * 1000),
+          });
+        }
+
+        const sessionDoc = await TableSession.create({
+          tableId: table._id,
+          restaurantId: fixtures.restaurantA._id,
+          status: 'open',
+          hostId,
+          participants,
+        });
+
+        const sessionId = sessionDoc._id.toString();
+
+        while (true) {
+          const current = await TableSession.findById(sessionId).lean();
+          if (!current || current.status === 'closed' || !current.participants || current.participants.length === 0) {
+            break;
+          }
+
+          const targetIdx = randInt(0, current.participants.length - 1);
+          const targetId = current.participants[targetIdx].id;
+
+          const res = await request(app)
+            .post(`/api/sessions/staff/${sessionId}/participants/${targetId}/remove`)
+            .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+
+          expect(res.status).toBe(200);
+
+          const after = await TableSession.findById(sessionId).lean();
+          if (after.status === 'closed') {
+            expect(after.status).toBe('closed');
+            break;
+          } else {
+            expect(after.status).toBe('open');
+            const approved = (after.participants || []).filter((p) => p && p.status === 'approved');
+            const hosts = approved.filter((p) => p && p.role === 'host');
+            expect(hosts).toHaveLength(1);
+            expect(hosts[0].id).toBe(after.hostId);
+          }
+        }
+      }
+    });
   });
 
   describe('IDLE SWEEPER (closeIdleSessions & startIdleSweeper)', () => {
@@ -1109,6 +1369,8 @@ describe('Staff Table Session Safeguards (/api/sessions/staff)', () => {
       let callCount = 0;
       let threwError = false;
 
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
       const mockRun = jest.fn().mockImplementation(() => {
         callCount += 1;
         if (callCount === 1) {
@@ -1127,9 +1389,70 @@ describe('Staff Table Session Safeguards (/api/sessions/staff)', () => {
       await new Promise((resolve) => setTimeout(resolve, 120));
 
       clearInterval(timer);
+      consoleErrorSpy.mockRestore();
 
       expect(callCount).toBeGreaterThanOrEqual(2);
       expect(threwError).toBe(true);
+    });
+
+    test('sweeper failure: startIdleSweeper logs fixed text on rejection, keeps running, no error data logged', async () => {
+      let runCount = 0;
+      const run = jest.fn().mockImplementation(() => {
+        runCount += 1;
+        return Promise.reject(new Error('Sensitive database error token secret'));
+      });
+
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      let timer;
+      try {
+        timer = startIdleSweeper({ intervalMs: 20, run });
+
+        await new Promise((resolve) => setTimeout(resolve, 80));
+
+        expect(runCount).toBeGreaterThanOrEqual(2);
+        expect(consoleErrorSpy).toHaveBeenCalled();
+
+        for (const callArgs of consoleErrorSpy.mock.calls) {
+          expect(callArgs).toEqual(['[maitred] idle session sweep failed']);
+        }
+      } finally {
+        if (timer) clearInterval(timer);
+        consoleErrorSpy.mockRestore();
+      }
+    });
+
+    test('sweeper success: run returns 3 logs info message; run returns 0 logs nothing', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      let timer3;
+      let timer0;
+      try {
+        const run3 = jest.fn().mockResolvedValue(3);
+        timer3 = startIdleSweeper({ intervalMs: 20, run: run3 });
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        clearInterval(timer3);
+
+        expect(consoleLogSpy).toHaveBeenCalledWith('[maitred] closed 3 idle table session(s)');
+        expect(consoleErrorSpy).not.toHaveBeenCalled();
+
+        consoleLogSpy.mockClear();
+        consoleErrorSpy.mockClear();
+
+        const run0 = jest.fn().mockResolvedValue(0);
+        timer0 = startIdleSweeper({ intervalMs: 20, run: run0 });
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        clearInterval(timer0);
+
+        expect(consoleLogSpy).not.toHaveBeenCalled();
+        expect(consoleErrorSpy).not.toHaveBeenCalled();
+      } finally {
+        if (timer3) clearInterval(timer3);
+        if (timer0) clearInterval(timer0);
+        consoleLogSpy.mockRestore();
+        consoleErrorSpy.mockRestore();
+      }
     });
 
     test('server.js starts sweeper only in startServer: contains "startIdleSweeper(" exactly once after "server.listen("', () => {

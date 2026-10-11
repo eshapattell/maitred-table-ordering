@@ -280,9 +280,15 @@ All automated tests adhere to project testing rules:
 | `POST /api/sessions/staff/:id/participants/:id/remove` (Approved) | 200 { message: "Removed" }; token answers PARTICIPANT_REMOVED; phone freed immediately for new table | `backend/routes/sessionStaffRoutes.test.js` | Passed |
 | `POST /api/sessions/staff/:id/participants/:id/remove` (Host promotion) | Removing host promotes longest-seated approved guest (hostId and role "host" updated in DB) | `backend/routes/sessionStaffRoutes.test.js` | Passed |
 | `POST /api/sessions/staff/:id/participants/:id/remove` (Empty/pending only reset) | Removing host with only pending guests left closes session (reason "reset", phones null); removing last participant does same | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `POST /api/sessions/staff/:id/participants/:id/remove` (Host race - successor removed) | Concurrent removal of chosen successor recovers on fresh data and promotes other approved guest (200) | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `POST /api/sessions/staff/:id/participants/:id/remove` (Host race - successor demoted) | Concurrent demotion of chosen successor to pending recovers and promotes other approved guest (200) | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `POST /api/sessions/staff/:id/participants/:id/remove` (Promotion never matches) | Spy returning matchedCount 0 closes session (reason "reset", phones null, 200) | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `POST /api/sessions/staff/:id/participants/:id/remove` (Consistency property) | 25 seeded random sessions invariant: after every removal answers 200, session is closed or has exactly one approved host whose id matches hostId | `backend/routes/sessionStaffRoutes.test.js` | Passed |
 | `POST /api/sessions/staff/:id/participants/:id/remove` (Guards) | 404 on unknown participant, restaurant B, closed session, not-an-id, or update matchedCount 0 | `backend/routes/sessionStaffRoutes.test.js` | Passed |
 | `closeIdleSessions` (Inactivity sweeper logic) | Closes sessions idle >240m (reason "timeout", phones null); 239m remains open; returns closed count (0 on second call); table freed | `backend/routes/sessionStaffRoutes.test.js` | Passed |
 | `startIdleSweeper` (Recurring interval execution) | Calls run repeatedly, survives exceptions thrown by run, timer is unref'd, clearable via clearInterval | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `startIdleSweeper` (Error logging) | On run rejection, logs fixed text "[maitred] idle session sweep failed" with no error data, continues interval execution | `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| `startIdleSweeper` (Success logging) | On closed > 0 logs "[maitred] closed N idle table session(s)" via console.log; on closed 0 logs nothing | `backend/routes/sessionStaffRoutes.test.js` | Passed |
 | Server Startup Sweeper Wiring | server.js calls startIdleSweeper() exactly once after server.listen, guarded by NODE_ENV !== 'test' | `backend/routes/sessionStaffRoutes.test.js` | Passed |
 
 ## Known gaps

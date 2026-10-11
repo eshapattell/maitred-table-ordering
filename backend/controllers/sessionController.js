@@ -660,31 +660,41 @@ export const removeStaffParticipant = async (req, res, next) => {
       return res.status(404).json({ message: 'Participant not found', code: 'NOT_FOUND' });
     }
 
-    // c. If removed person was host, promote longest-seated approved guest
-    // Viva note: A $pull and a positional $set on the same array cannot be combined in one update,
-    // which is why promoting a new host is done as a second step.
+    // c. If the removed person was the host, promote the longest-seated approved guest.
+    // Viva note: the promotion only matches while that guest is STILL approved, so a change made by
+    // someone else in the meantime can never leave a hostId that points at a non-host. A $pull and
+    // a positional $set on the same array cannot be combined in one update, hence two steps.
     // Include arrayFilters ONLY in an update that uses $[h]; MongoDB rejects an unused array filter.
     const wasHost = target.role === 'host' || session.hostId === participantId;
     if (wasHost) {
-      const newHostId = pickNewHost(session.participants, participantId);
-      if (newHostId !== null) {
-        const promoteResult = await TableSession.updateOne(
-          { _id: session._id, restaurantId: req.user.restaurantId, status: 'open' },
+      let candidates = session.participants;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const newHostId = pickNewHost(candidates, participantId);
+        if (newHostId === null) break;
+        const promoted = await TableSession.updateOne(
+          {
+            _id: session._id,
+            restaurantId: req.user.restaurantId,
+            status: 'open',
+            participants: { $elemMatch: { id: newHostId, status: 'approved' } },
+          },
           { $set: { hostId: newHostId, 'participants.$[h].role': 'host' } },
           { arrayFilters: [{ 'h.id': newHostId, 'h.status': 'approved' }] }
         );
-        if (promoteResult.matchedCount === 0) {
-          return res.status(404).json({ message: 'Session not found', code: 'NOT_FOUND' });
-        }
+        if (promoted.matchedCount > 0) break;
+        // that guest changed in the meantime (or the session closed): look again with fresh data
+        const fresh = await TableSession.findById(session._id).lean();
+        if (!fresh || fresh.status !== 'open') break;
+        candidates = fresh.participants;
       }
     }
 
-    // d. Read the session again. If no APPROVED participant is left, closeSession with 'reset'.
-    // Viva note: A session nobody can run (empty or only waiting guests without a host) must
-    // not keep a table locked; the next guest to scan becomes host of a fresh one.
+    // d. Read the session again. A session nobody can run must not keep a table locked: close it
+    // when no approved participant is left, or when the host could not be replaced.
     const reread = await TableSession.findById(session._id).lean();
-    const hasApproved = reread && (reread.participants || []).some((p) => p && p.status === 'approved');
-    if (!hasApproved) {
+    const approved = reread ? (reread.participants || []).filter((p) => p && p.status === 'approved') : [];
+    const hostMissing = wasHost && !approved.some((p) => p.role === 'host' && p.id === reread.hostId);
+    if (approved.length === 0 || hostMissing) {
       await closeSession(session._id, 'reset');
     }
 
@@ -735,10 +745,11 @@ export const startIdleSweeper = ({
     try {
       const closed = await run();
       if (closed > 0) {
-        console.error(`[maitred] closed ${closed} idle table session(s)`);
+        console.log(`[maitred] closed ${closed} idle table session(s)`);
       }
     } catch {
-      // Swallows errors so a single database hiccup never stops the sweeper
+      // Keep sweeping, but never fail silently. The text is fixed on purpose: no error object, no data.
+      console.error('[maitred] idle session sweep failed');
     }
   }, intervalMs);
 
