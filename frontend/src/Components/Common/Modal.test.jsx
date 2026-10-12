@@ -84,7 +84,7 @@ describe('Modal component', () => {
     expect(handleClose).not.toHaveBeenCalled();
   });
 
-  test('6. focus moves in on mount and returns to previously active element on close', () => {
+  test('6. with a body that holds an input the input is focused, and focus returns to trigger on unmount', () => {
     const triggerButton = document.createElement('button');
     triggerButton.textContent = 'Open Dialog';
     document.body.appendChild(triggerButton);
@@ -98,13 +98,23 @@ describe('Modal component', () => {
       </Modal>
     );
 
-    const closeBtn = screen.getByRole('button', { name: 'Close' });
-    // First focusable element inside the modal is the Close button in the header
-    expect(document.activeElement).toBe(closeBtn);
+    const input = screen.getByTestId('first-input');
+    expect(document.activeElement).toBe(input);
 
     unmount();
     expect(document.activeElement).toBe(triggerButton);
     document.body.removeChild(triggerButton);
+  });
+
+  test('6b. with no focusable body content the Close button is focused', () => {
+    render(
+      <Modal title="No Focusable Content" onClose={vi.fn()}>
+        <p>Just text content</p>
+      </Modal>
+    );
+
+    const closeBtn = screen.getByRole('button', { name: 'Close' });
+    expect(document.activeElement).toBe(closeBtn);
   });
 
   test('7. Tab and Shift+Tab wrap focus inside dialog', () => {
@@ -120,9 +130,14 @@ describe('Modal component', () => {
     );
 
     const closeBtn = screen.getByRole('button', { name: 'Close' });
+    const btnA = screen.getByTestId('btn-a');
     const btnB = screen.getByTestId('btn-b');
 
-    // Currently at closeBtn (the first focusable element)
+    // On mount, btnA (first element in body) is focused
+    expect(document.activeElement).toBe(btnA);
+
+    // Focus closeBtn (first focusable element in dialog) to test Shift+Tab wrap
+    closeBtn.focus();
     expect(document.activeElement).toBe(closeBtn);
 
     // Shift+Tab from first element wraps to last element (btnB)

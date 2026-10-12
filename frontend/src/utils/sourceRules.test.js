@@ -82,6 +82,18 @@ describe('sourceRules (rule 12 safety and architecture checks)', () => {
     expect(content).toContain('.qr-print');
     expect(content).toContain('color-scheme: dark');
     expect(content).toContain(':-webkit-autofill');
+    expect(content).toContain('body:has(.qr-print) #root');
+    expect(content).not.toContain('#root,\n  .no-print');
+  });
+
+  test('index.css contains colour literals only in :root', () => {
+    const cssPath = path.join(SRC_DIR, 'index.css');
+    const content = fs.readFileSync(cssPath, 'utf8');
+
+    const withoutRoot = content.replace(/:root\s*\{[\s\S]*?\}/, '');
+    const colourPattern = /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g;
+    const matches = withoutRoot.match(colourPattern) || [];
+    expect(matches).toEqual([]);
   });
 
   test('index.html contains favicon link and page title with escaped accent', () => {

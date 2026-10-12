@@ -535,4 +535,15 @@ describe('MenuManager page', () => {
       expect(editBtn).not.toBeDisabled();
     });
   });
+
+  test('18. filter group has accessible name "Filter dishes"', async () => {
+    menuService.fetchMenu.mockResolvedValueOnce([dishConfirmed]);
+
+    render(<MenuManager />);
+    await screen.findByText('Saffron Risotto');
+
+    expect(
+      screen.getByRole('group', { name: 'Filter dishes' })
+    ).toBeInTheDocument();
+  });
 });

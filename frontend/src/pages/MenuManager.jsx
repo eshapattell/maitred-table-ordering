@@ -218,7 +218,6 @@ export const MenuManager = () => {
 
   return (
     <div className="page-content menu-manager">
-      <span className="sr-only" style={{ display: 'none' }}>{MESSAGES.common.comingSoon}</span>
       <h1 className="page-title">{MESSAGES.nav.menu}</h1>
 
       {loading ? (
@@ -263,7 +262,11 @@ export const MenuManager = () => {
               {MESSAGES.owner.menu.addDish}
             </Button>
 
-            <div className="filter-group" role="group">
+            <div
+              className="filter-group"
+              role="group"
+              aria-label={MESSAGES.owner.menu.filterGroupLabel}
+            >
               {MENU_FILTERS.map((f) => {
                 const isPressed = filter === f;
                 const label =

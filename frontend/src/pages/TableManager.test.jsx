@@ -422,4 +422,67 @@ describe('TableManager page', () => {
       expect(tableService.createTable).toHaveBeenCalledWith(42);
     });
   });
+
+  test('15. replace-QR success path opens the new QR dialog', async () => {
+    tableService.fetchTables.mockResolvedValue(dummyTables);
+    tableService.rotateTableToken.mockResolvedValueOnce({ id: 't1', number: 1 });
+    tableService.fetchTableQR.mockResolvedValueOnce(dummyQrData);
+
+    render(<TableManager />);
+    await screen.findByText('Table 1');
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: MESSAGES.owner.tables.replaceQr(1),
+      })
+    );
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: MESSAGES.owner.tables.rotateConfirm,
+      })
+    );
+
+    await waitFor(() => {
+      expect(tableService.rotateTableToken).toHaveBeenCalledWith('t1');
+    });
+
+    expect(
+      await screen.findByRole('dialog', { name: 'Table 1' })
+    ).toBeInTheDocument();
+    expect(tableService.fetchTableQR).toHaveBeenCalledWith('t1');
+  });
+
+  test('16. rotation success followed by fetchTableQR failure shows replacedQrLoadFailed, calls rotateTableToken once, re-fetches table list, and does not show generic message', async () => {
+    tableService.fetchTables.mockResolvedValue(dummyTables);
+    tableService.rotateTableToken.mockResolvedValueOnce({ id: 't1', number: 1 });
+    tableService.fetchTableQR.mockRejectedValueOnce(new Error('QR network error'));
+
+    render(<TableManager />);
+    await screen.findByText('Table 1');
+    expect(tableService.fetchTables).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: MESSAGES.owner.tables.replaceQr(1),
+      })
+    );
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: MESSAGES.owner.tables.rotateConfirm,
+      })
+    );
+
+    expect(
+      await screen.findByText(MESSAGES.owner.tables.errors.replacedQrLoadFailed)
+    ).toBeInTheDocument();
+
+    expect(tableService.rotateTableToken).toHaveBeenCalledTimes(1);
+    expect(tableService.rotateTableToken).toHaveBeenCalledWith('t1');
+    expect(tableService.fetchTables).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(MESSAGES.owner.tables.errors.generic)).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
 });
+

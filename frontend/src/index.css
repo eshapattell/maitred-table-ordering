@@ -12,6 +12,8 @@
   --color-on-accent: #141414;
   --color-danger: #e0716b;
   --color-success: #86b394;
+  --color-overlay: rgba(0, 0, 0, 0.75);
+  --shadow-modal: 0 8px 32px rgba(0, 0, 0, 0.8);
   --font-serif: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
   --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --space-1: 0.25rem;
@@ -575,7 +577,7 @@ a:hover {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background-color: rgba(0, 0, 0, 0.75);
+  background-color: var(--color-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -596,7 +598,7 @@ a:hover {
   display: flex;
   flex-direction: column;
   padding: var(--space-6);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8);
+  box-shadow: var(--shadow-modal);
 }
 
 .modal-header {
@@ -772,8 +774,7 @@ a:hover {
     overflow: visible !important;
   }
 
-  #root,
-  .no-print {
+  body:has(.qr-print) #root, .no-print {
     display: none !important;
   }
 

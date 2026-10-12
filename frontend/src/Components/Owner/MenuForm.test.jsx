@@ -232,4 +232,23 @@ describe('MenuForm', () => {
     expect(options[0].value).toBe('Starters');
     expect(options[1].value).toBe('Desserts');
   });
+
+  test('15. allergen fieldset links aria-describedby to error message on validation failure', () => {
+    const { container } = render(
+      <MenuForm mode="create" onSubmit={vi.fn()} onCancel={vi.fn()} />
+    );
+
+    fireEvent.click(
+      screen.getByRole('button', { name: MESSAGES.owner.menu.addDishSubmit })
+    );
+
+    const allergenFieldset = container.querySelector('.allergens-fieldset');
+    expect(allergenFieldset).toBeInTheDocument();
+    const describedBy = allergenFieldset.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+
+    const errorEl = document.getElementById(describedBy);
+    expect(errorEl).toBeInTheDocument();
+    expect(errorEl).toHaveAttribute('role', 'alert');
+  });
 });

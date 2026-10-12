@@ -44,6 +44,7 @@ export const MenuForm = ({
   const vegId = useId();
   const nonVegId = useId();
   const allergensLegendId = useId();
+  const flavoursLegendId = useId();
 
   const fieldRefs = {
     name: useRef(null),
@@ -396,8 +397,13 @@ export const MenuForm = ({
       </fieldset>
 
       {/* Flavours */}
-      <fieldset className="field-group">
-        <legend className="field-label">{MESSAGES.owner.menu.fields.flavours}</legend>
+      <fieldset
+        className="field-group"
+        aria-describedby={errors.flavourTags ? `${flavoursLegendId}-error` : undefined}
+      >
+        <legend id={flavoursLegendId} className="field-label">
+          {MESSAGES.owner.menu.fields.flavours}
+        </legend>
         <div className="checkbox-grid">
           {FLAVOUR_TAGS.map((tag, idx) => (
             <label key={tag} className="check-label">
@@ -412,14 +418,17 @@ export const MenuForm = ({
           ))}
         </div>
         {errors.flavourTags && (
-          <div role="alert" className="field-error">
+          <div id={`${flavoursLegendId}-error`} role="alert" className="field-error">
             {errors.flavourTags}
           </div>
         )}
       </fieldset>
 
       {/* Allergens fieldset */}
-      <fieldset className="field-group allergens-fieldset">
+      <fieldset
+        className="field-group allergens-fieldset"
+        aria-describedby={errors.allergens ? `${allergensLegendId}-error` : undefined}
+      >
         <legend id={allergensLegendId} className="field-label">
           {MESSAGES.owner.menu.fields.allergensLegend}
         </legend>

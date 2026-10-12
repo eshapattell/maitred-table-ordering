@@ -139,27 +139,37 @@ export const TableManager = () => {
     if (!activeModal?.table) return;
     const table = activeModal.table;
     setBusy(true);
+
     try {
       await rotateTableToken(table.id);
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      setBusy(false);
+      setActiveModal(null);
+      const status = err?.response?.status;
+      if (status === 404) {
+        setPageError(MESSAGES.owner.tables.errors.notFound);
+        await reFetchTables();
+      } else {
+        setPageError(MESSAGES.owner.tables.errors.generic);
+      }
+      return;
+    }
+
+    try {
+      const qrData = await fetchTableQR(table.id);
       if (!isMountedRef.current) return;
       await reFetchTables();
-      if (!isMountedRef.current) return;
-      const qrData = await fetchTableQR(table.id);
       if (!isMountedRef.current) return;
       setBusy(false);
       setActiveModal({ type: 'qr', table, qrData });
     } catch (err) {
       if (!isMountedRef.current) return;
+      setActiveModal(null);
       setBusy(false);
-      const status = err?.response?.status;
-      if (status === 404) {
-        setActiveModal(null);
-        setPageError(MESSAGES.owner.tables.errors.notFound);
-        await reFetchTables();
-      } else {
-        setActiveModal(null);
-        setPageError(MESSAGES.owner.tables.errors.generic);
-      }
+      await reFetchTables();
+      if (!isMountedRef.current) return;
+      setPageError(MESSAGES.owner.tables.errors.replacedQrLoadFailed);
     }
   };
 
@@ -200,9 +210,6 @@ export const TableManager = () => {
 
   return (
     <div className="page-content table-manager">
-      <span className="sr-only" style={{ display: 'none' }}>
-        {MESSAGES.common.comingSoon}
-      </span>
       <h1 className="page-title">{MESSAGES.nav.tables}</h1>
 
       {loading ? (

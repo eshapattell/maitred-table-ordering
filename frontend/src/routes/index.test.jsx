@@ -36,8 +36,7 @@ describe("AppRoutes configuration and navigation switchboard", () => {
       "/"
     );
 
-    expect(screen.getByRole("heading", { name: MESSAGES.nav.menu })).toBeInTheDocument();
-    expect(screen.getByText(MESSAGES.common.comingSoon)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: MESSAGES.nav.menu })).toBeInTheDocument();
   });
 
   test("an authenticated kitchen user at '/owner/menu' ends up on the kitchen page", () => {
