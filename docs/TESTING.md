@@ -338,6 +338,31 @@ Manual checks:
 | Loader Component (`Loader.jsx`) | Role `status`; quiet understated copy | `frontend/src/Components/Common/Loader.test.jsx` | Passed |
 | Navigation Header (`Navbar.jsx`) | Anonymous sees brand only; authenticated owner sees menu & tables links + sign-out; kitchen sees kitchen link + sign-out; logout triggers sign-out | `frontend/src/Components/Common/Navbar.test.jsx` | Passed |
 
+## Owner Screens Test Checklist: Menu & Table Management (Task 8b)
+
+Manual checks:
+- Add a dish and see it marked as not confirmed
+- Review and confirm it
+- Edit only the price and see the confirmation stay
+- Edit an allergen and see it go back to not confirmed
+- Hide and show a dish
+- Add, show, replace and delete a table
+- Print preview of a QR shows only the code
+- 375 px width has no sideways scrolling
+
+| Component / Feature | Expected Result | Test File | Status |
+| :--- | :--- | :--- | :--- |
+| Menu Service (`menuService.js`) | GET /menu, POST /menu, PATCH /menu/:itemId, POST confirm-allergens, PATCH availability; URI encodes IDs; propagates 409 and 500 status | `frontend/src/services/menuService.test.js` | Passed |
+| Table Service (`tableService.js`) | GET /tables (drops qrToken), POST /tables (drops qrToken), GET /tables/:id/qr, POST rotate-token (drops qrToken), DELETE /tables/:id; URI encodes IDs; propagates 409 and 500 status | `frontend/src/services/tableService.test.js` | Passed |
+| Accessible Modal (`Modal.jsx`) | createPortal into body, aria-modal, aria-labelledby heading, Escape/backdrop close, click inside isolated, busy blocks close/escape, focus trap (Tab/Shift+Tab wrap), scroll lock & restore | `frontend/src/Components/Common/Modal.test.jsx` | Passed |
+| Menu Form (`MenuForm.jsx`) | 12 fields; blank validation prevents submit; focus to first invalid; allergen none/list exclusivity; exact create payload; prefilled edit mode; unknown tags warning; busy disabled; cancel | `frontend/src/Components/Owner/MenuForm.test.jsx` | Passed |
+| Allergen Tag Review (`AllergenTagReview.jsx`) | Displays stored tags; empty list safety warning; unreadable/unknown tags disable confirm; requires explicit tick; passes exact stored array; cancel & busy states | `frontend/src/Components/Owner/AllergenTagReview.test.jsx` | Passed |
+| Table Card (`TableCard.jsx`) | Heading Table N; three accessible buttons (Show, Replace, Delete); disabled when busy; dispatches handlers with table | `frontend/src/Components/Owner/TableCard.test.jsx` | Passed |
+| QR Display (`QRDisplay.jsx`) | Displays img only for valid PNG base64; http(s) guest link; download filename format; Print button calls window.print; zero hex secret leaks in visible text | `frontend/src/Components/Owner/QRDisplay.test.jsx` | Passed |
+| Menu Manager Page (`MenuManager.jsx`) | Full listing, summary counts, section grouping, status chips, filters with counts, add/edit/review modals, availability toggle, 409 conflict reload, generic error handling | `frontend/src/pages/MenuManager.test.jsx` | Passed |
+| Table Manager Page (`TableManager.jsx`) | Table grid & empty state; numeric input validation (1-500); add/rotate/delete modals; 409 table exists / session active blocked; zero 32-hex token leaks; busy locks | `frontend/src/pages/TableManager.test.jsx` | Passed |
+| Frontend Architecture & Safety Rules (`sourceRules.test.js`) | Zero dangerouslySetInnerHTML, innerHTML, localStorage, dialog, eval, new Function; no console in pages/components/services; index.css print & autofill; index.html icon & title | `frontend/src/utils/sourceRules.test.js` | Passed |
+
 ## Known gaps
 
 | Gap | Closed by | Proven by | Status |
@@ -366,4 +391,7 @@ Manual checks:
 | Staff reset does not check for an unpaid bill (orders and bills are built in later tasks) | the bill task: the staff screen warns when unpaid items exist before a reset | open | open |
 | Pending approvals and the staff session list are fetched by polling, not pushed live | the Socket.io cart task adds live updates | open | open |
 | The idle limit of 4 hours is a safety valve chosen by us, not by the mentor; a table with no activity for 4 hours can be claimed again | state it in the report | open | open |
+| Allergen confirmation is a human check: the screen requires an explicit tick but cannot verify the recipe | the report states the limitation | pending | open |
+| Staff session controls (approve, reject, reset, remove) exist in the API but have no screen yet | kitchen screens task | pending | open |
+| QR codes encode CLIENT_URL, which must be the public address before any code is printed | final review (deployment) | pending | open |
 

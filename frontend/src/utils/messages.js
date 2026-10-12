@@ -1,13 +1,25 @@
 // messages.js: UI copy and messages for maitred
-export const MESSAGES = Object.freeze({
-  featureNames: Object.freeze({
+
+const deepFreeze = (obj) => {
+  if (obj === null || typeof obj !== 'object') return obj;
+  for (const key of Object.keys(obj)) {
+    const val = obj[key];
+    if (val && typeof val === 'object') {
+      deepFreeze(val);
+    }
+  }
+  return Object.freeze(obj);
+};
+
+export const MESSAGES = deepFreeze({
+  featureNames: {
     menu: "The Menu",
     carteBlanche: "Carte Blanche",
     yourPalate: "Your Palate",
     chefsSelection: "Chef's Selection",
     tableSelection: "The Table's Selection",
-  }),
-  auth: Object.freeze({
+  },
+  auth: {
     title: "Staff sign in",
     email: "Email",
     password: "Password",
@@ -17,16 +29,120 @@ export const MESSAGES = Object.freeze({
     required: "Please enter your email and password.",
     unavailable: "We could not reach the service. Please try again in a moment.",
     signOut: "Sign out",
-  }),
-  common: Object.freeze({
+  },
+  common: {
     loading: "One moment",
     comingSoon: "This screen is being prepared.",
     notFound: "This page could not be found.",
     backHome: "Return home",
-  }),
-  nav: Object.freeze({
+    close: "Close",
+    cancel: "Cancel",
+    tryAgain: "Try again",
+    saving: "Saving",
+  },
+  nav: {
     menu: "Menu",
     tables: "Tables",
     kitchen: "Kitchen",
-  }),
+  },
+  owner: {
+    menu: {
+      title: "Menu",
+      addDish: "Add a dish",
+      addDishSubmit: "Add dish",
+      saveChangesSubmit: "Save changes",
+      modalAddTitle: "Add dish",
+      modalEditTitle: (name) => `Edit ${name}`,
+      modalReviewTitle: (name) => `Review allergens for ${name}`,
+      filterAll: (count) => `All dishes (${count})`,
+      filterReview: (count) => `Awaiting review (${count})`,
+      filterHidden: (count) => `Hidden (${count})`,
+      summary: ({ total, review, hidden }) =>
+        `${total} ${total === 1 ? 'dish' : 'dishes'} · ${review} awaiting allergen review · ${hidden} hidden`,
+      emptyState: "No dishes on the menu yet.",
+      emptyFilterState: "No dishes match this filter.",
+      noChanges: "No changes to save",
+      changesSaved: "Changes saved",
+      allergensConfirmedFor: (name) => `Allergens confirmed for ${name}`,
+      chipConfirmed: "Allergens confirmed",
+      chipNeedsReview: "Allergens not confirmed",
+      chipHidden: "Hidden from guests",
+      chipNoAllergens: "No allergens recorded",
+      chipUnknownAllergens: "Allergen tags need attention",
+      vegetarian: "Vegetarian",
+      nonVegetarian: "Non-vegetarian",
+      fields: {
+        name: "Dish name",
+        description: "Description",
+        price: "Price (whole rupees)",
+        category: "Menu section",
+        course: "Course",
+        cuisine: "Cuisine",
+        portionSize: "Portion size",
+        prepMinutes: "Preparation time (minutes)",
+        spiceLevel: "Spice level",
+        diet: "Dietary",
+        flavours: "Flavours",
+        allergensLegend: "Allergens",
+        coursePlaceholder: "Choose a course",
+      },
+      allergenHint: "Tick every allergen in the recipe. A new or changed list must be reviewed and confirmed before guests see this dish as safe.",
+      noneCheckbox: "This dish contains none of these allergens",
+      reviewCheckbox: "I have checked the recipe and this list is complete and correct.",
+      reviewEmptyList: "No allergens are recorded for this dish. Guests with any allergy will be shown it as safe.",
+      reviewUnknownTags: "This dish has allergen tags that cannot be shown here. Edit the dish and choose its allergens again.",
+      savedAfterAdd: "Dish added. Its allergens must be confirmed before guests see this dish as safe.",
+      savedAfterEditAllergens: "Saved. The allergens changed and must be confirmed again before guests see this dish as safe.",
+      reviewConflict: "This dish changed while you were reviewing it. Please review the updated allergens.",
+      actions: {
+        edit: (name) => `Edit ${name}`,
+        review: (name) => `Review allergens for ${name}`,
+        hide: (name) => `Hide ${name}`,
+        show: (name) => `Show ${name}`,
+        confirm: "Confirm allergens",
+      },
+      errors: {
+        loadFailed: "We could not load the menu. Please try again.",
+        notAccepted: "These details were not accepted",
+        notFound: "This dish no longer exists",
+        saveFailed: "We could not save this dish. Please try again.",
+      },
+    },
+    tables: {
+      title: "Tables",
+      addTable: "Add table",
+      tableNumberLabel: "Table number",
+      invalidNumber: "Enter a whole number from 1 to 500",
+      emptyState: "No tables added yet.",
+      tableHeading: (number) => `Table ${number}`,
+      showQr: (number) => `Show QR code for table ${number}`,
+      replaceQr: (number) => `Replace QR code for table ${number}`,
+      deleteTable: (number) => `Delete table ${number}`,
+      rotateModalTitle: (number) => `Replace QR code for table ${number}?`,
+      rotateBody: "The printed code will stop working for new guests. Guests already seated keep their session.",
+      rotateConfirm: "Replace QR code",
+      deleteModalTitle: (number) => `Delete table ${number}?`,
+      deleteModalBody: "Its QR code will stop working. This cannot be undone.",
+      deleteConfirm: "Delete table",
+      deleteBlocked: "A party is seated at this table. Delete it after their session has ended.",
+      qrCaption: (appName) => `Scan with a phone camera to join table with ${appName}.`,
+      openGuestLink: "Open guest link",
+      downloadImage: "Download image",
+      print: "Print",
+      qrUnavailable: "The QR code could not be shown",
+      qrAlt: (number) => `QR code for table ${number}`,
+      notes: {
+        added: (number) => `Table ${number} added`,
+        deleted: (number) => `Table ${number} deleted`,
+      },
+      errors: {
+        loadFailed: "We could not load the tables. Please try again.",
+        alreadyExists: (number) => `Table ${number} already exists`,
+        invalidNumber: "Enter a whole number from 1 to 500",
+        notFound: "That table no longer exists",
+        generic: "We could not complete this request. Please try again.",
+        qrLoadFailed: "We could not load the QR code. Please try again.",
+      },
+    },
+  },
 });
