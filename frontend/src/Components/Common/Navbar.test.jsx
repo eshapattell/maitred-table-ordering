@@ -9,10 +9,10 @@ import { APP_NAME } from "../../utils/constants.js";
 import { MESSAGES } from "../../utils/messages.js";
 import { ROUTE_PATHS } from "../../utils/routePaths.js";
 
-const renderNavbar = (authValue) => {
+const renderNavbar = (authValue, initialEntries = ["/"]) => {
   return render(
     <AuthContext.Provider value={authValue}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={initialEntries}>
         <Navbar />
       </MemoryRouter>
     </AuthContext.Provider>
@@ -84,4 +84,54 @@ describe("Navbar component", () => {
     expect(screen.queryByRole("link", { name: MESSAGES.nav.tables })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: MESSAGES.auth.signOut })).toBeInTheDocument();
   });
+
+  test("on /table, renders brand as plain text span and no staff links or sign-out button", () => {
+    renderNavbar(
+      {
+        status: "authenticated",
+        user: { id: "u1", name: "Ravi Kumar", role: "owner" },
+        logout: vi.fn(),
+      },
+      ["/table"]
+    );
+
+    expect(screen.queryByRole("link", { name: APP_NAME })).not.toBeInTheDocument();
+    expect(screen.getByText(APP_NAME)).toBeInTheDocument();
+    expect(screen.getByText(APP_NAME).tagName).toBe("SPAN");
+    expect(screen.queryByRole("button", { name: MESSAGES.auth.signOut })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: MESSAGES.nav.menu })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: MESSAGES.nav.tables })).not.toBeInTheDocument();
+  });
+
+  test("on /r/..., renders brand as plain text span and no staff links or sign-out button", () => {
+    renderNavbar(
+      {
+        status: "authenticated",
+        user: { id: "u1", name: "Ravi Kumar", role: "owner" },
+        logout: vi.fn(),
+      },
+      ["/r/rest-1/t/4"]
+    );
+
+    expect(screen.queryByRole("link", { name: APP_NAME })).not.toBeInTheDocument();
+    expect(screen.getByText(APP_NAME)).toBeInTheDocument();
+    expect(screen.getByText(APP_NAME).tagName).toBe("SPAN");
+    expect(screen.queryByRole("button", { name: MESSAGES.auth.signOut })).not.toBeInTheDocument();
+  });
+
+  test("on staff routes (/menu, /tables), renders brand as Link to /", () => {
+    renderNavbar(
+      {
+        status: "authenticated",
+        user: { id: "u1", name: "Ravi Kumar", role: "owner" },
+        logout: vi.fn(),
+      },
+      ["/menu"]
+    );
+
+    const brandLink = screen.getByRole("link", { name: APP_NAME });
+    expect(brandLink).toBeInTheDocument();
+    expect(brandLink).toHaveAttribute("href", ROUTE_PATHS.HOME);
+  });
 });
+

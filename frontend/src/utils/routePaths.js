@@ -6,6 +6,7 @@ export const ROUTE_PATHS = Object.freeze({
   OWNER_TABLES: "/owner/tables",
   KITCHEN: "/kitchen",
   GUEST_TABLE: "/r/:restaurantId/table/:tableNo",
+  GUEST_AREA: "/table",
 });
 
 export const homePathFor = (role) => {
