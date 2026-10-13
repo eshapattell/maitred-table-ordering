@@ -163,9 +163,11 @@ export const GuestTable = () => {
         <p className="guest-table-subtitle">
           {MESSAGES.guest.welcome(data?.me?.nickname || '')}
         </p>
-        <p className="guest-table-summary">
-          {MESSAGES.guest.peopleAtTable(diners(data).length)}
-        </p>
+        {activeScreen !== 'waiting' && (
+          <p className="guest-table-summary">
+            {MESSAGES.guest.peopleAtTable(diners(data).length)}
+          </p>
+        )}
       </header>
 
       {isHost(data?.me) && (

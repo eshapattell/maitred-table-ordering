@@ -6,6 +6,7 @@ import { joinTable, saveGuestToken, readGuestToken } from '../services/guestServ
 import { ROUTE_PATHS } from '../utils/routePaths.js';
 import Button from '../Components/Common/Button.jsx';
 import ErrorMessage from '../Components/Common/ErrorMessage.jsx';
+import { MESSAGES } from '../utils/messages.js';
 
 export const ScanLanding = () => {
   const { restaurantId, tableNo } = useParams();
@@ -96,17 +97,17 @@ export const ScanLanding = () => {
   return (
     <div className="page-content guest-page">
       <div className="guest-card">
-        <h1 className="page-title">{`Table ${parsed.tableNumber}`}</h1>
+        <h1 className="page-title">{MESSAGES.guest.joinTableHeading(parsed.tableNumber)}</h1>
 
         {serverError && <ErrorMessage>{serverError}</ErrorMessage>}
 
         <form onSubmit={handleSubmit} noValidate className="guest-join-form">
           <div className="field">
             <label htmlFor="join-name" className="field-label">
-              Your name at the table
+              {MESSAGES.guest.joinNameLabel}
             </label>
             <p id="join-name-hint" className="field-hint">
-              Other guests at your table will see this.
+              {MESSAGES.guest.joinNameHint}
             </p>
             <input
               ref={nameInputRef}
@@ -129,10 +130,10 @@ export const ScanLanding = () => {
 
           <div className="field">
             <label htmlFor="join-phone" className="field-label">
-              Mobile number
+              {MESSAGES.guest.joinPhoneLabel}
             </label>
             <p id="join-phone-hint" className="field-hint">
-              Indian mobile number
+              {MESSAGES.guest.joinPhoneHint}
             </p>
             <div className="phone-input-group">
               <span className="phone-prefix" aria-hidden="true">+91</span>
@@ -144,7 +145,7 @@ export const ScanLanding = () => {
                 className="field-input phone-input"
                 value={phone}
                 autoComplete="tel-national"
-                aria-label="Mobile number"
+                aria-label={MESSAGES.guest.joinPhoneLabel}
                 aria-invalid={errors.phone ? 'true' : undefined}
                 aria-describedby={errors.phone ? 'join-phone-error join-phone-hint' : 'join-phone-hint'}
                 onChange={handlePhoneChange}
@@ -158,7 +159,7 @@ export const ScanLanding = () => {
           </div>
 
           <p className="privacy-note">
-            We use your number only to recognise you at this table. Other guests never see it, and it is erased when the table session ends.
+            {MESSAGES.guest.joinPrivacyNote}
           </p>
 
           <Button
@@ -168,7 +169,7 @@ export const ScanLanding = () => {
             aria-busy={submitting ? 'true' : undefined}
             className="btn--full"
           >
-            Join table
+            {MESSAGES.guest.joinButton}
           </Button>
         </form>
       </div>

@@ -171,11 +171,34 @@ describe('sourceRules (rule 12 safety and architecture checks)', () => {
     }
   });
 
-  test('no file under pages, Components, or hooks contains "response?.data?.message" or "response.data.message", and none contains "MESSAGES?."', () => {
+  test('no file under pages, Components, hooks, or services contains "response?.data?.message", "response.data.message" or "MESSAGES?."', () => {
+    const FORBIDDEN_PATTERNS = [
+      'response?.data?.message',
+      'response.data.message',
+      'MESSAGES?.',
+    ];
+
+    const findForbidden = (text) => {
+      if (typeof text !== 'string') return [];
+      return FORBIDDEN_PATTERNS.filter((pattern) => text.includes(pattern));
+    };
+
+    // Self-check (ii): findForbidden reports all 3 for dirty text and none for clean text
+    const sampleDirty =
+      'const a = response?.data?.message; const b = response.data.message; const c = MESSAGES?.common;';
+    expect(findForbidden(sampleDirty)).toEqual([
+      'response?.data?.message',
+      'response.data.message',
+      'MESSAGES?.',
+    ]);
+    const sampleClean = 'const msg = MESSAGES.guest.loadMenuFailed;';
+    expect(findForbidden(sampleClean)).toEqual([]);
+
     const targetDirs = [
       path.join(SRC_DIR, 'pages'),
       path.join(SRC_DIR, 'Components'),
       path.join(SRC_DIR, 'hooks'),
+      path.join(SRC_DIR, 'services'),
     ];
 
     let filesToCheck = [];
@@ -185,25 +208,34 @@ describe('sourceRules (rule 12 safety and architecture checks)', () => {
       }
     }
 
-    // Exclude GuestMenuList.jsx which is locked from Task 10a
-    filesToCheck = filesToCheck.filter(
-      (file) => !file.endsWith('GuestMenuList.jsx')
-    );
+    // Self-check (i): list of scanned files must include specific files by name
+    const normalizedFiles = filesToCheck.map((p) => p.replace(/\\/g, '/'));
+    expect(
+      normalizedFiles.some((f) =>
+        f.endsWith('Components/Guest/GuestMenuList.jsx')
+      ),
+      'Must include Components/Guest/GuestMenuList.jsx'
+    ).toBe(true);
+    expect(
+      normalizedFiles.some((f) => f.endsWith('pages/GuestTable.jsx')),
+      'Must include pages/GuestTable.jsx'
+    ).toBe(true);
+    expect(
+      normalizedFiles.some((f) => f.endsWith('pages/ScanLanding.jsx')),
+      'Must include pages/ScanLanding.jsx'
+    ).toBe(true);
+    expect(
+      normalizedFiles.some((f) => f.endsWith('hooks/useGuestTable.js')),
+      'Must include hooks/useGuestTable.js'
+    ).toBe(true);
 
     for (const filePath of filesToCheck) {
       const content = fs.readFileSync(filePath, 'utf8');
+      const found = findForbidden(content);
       expect(
-        content.includes('response?.data?.message'),
-        `${filePath} contains response?.data?.message`
-      ).toBe(false);
-      expect(
-        content.includes('response.data.message'),
-        `${filePath} contains response.data.message`
-      ).toBe(false);
-      expect(
-        content.includes('MESSAGES?.'),
-        `${filePath} contains MESSAGES?.`
-      ).toBe(false);
+        found,
+        `File ${filePath} contains forbidden patterns: ${found.join(', ')}`
+      ).toEqual([]);
     }
   });
 });

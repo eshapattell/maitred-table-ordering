@@ -1,50 +1,73 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import GuestMenuList from './GuestMenuList.jsx';
 import * as guestService from '../../services/guestService.js';
+import { MESSAGES } from '../../utils/messages.js';
 
 vi.mock('../../services/guestService.js', () => ({
   fetchGuestMenu: vi.fn(),
 }));
 
+const makeDish = (overrides = {}) => ({
+  id: 'dish-default',
+  name: 'Default Dish',
+  description: 'A delicious dish',
+  price: 250,
+  category: 'Mains',
+  isVeg: true,
+  allergens: [],
+  allergensConfirmed: true,
+  spiceLevel: 'mild',
+  flavourTags: ['savoury'],
+  cuisine: 'Indian',
+  course: 'main',
+  portionSize: '1 serving',
+  prepMinutes: 15,
+  safe: true,
+  clashes: [],
+  reason: null,
+  ...overrides,
+});
+
 describe('GuestMenuList', () => {
   const sampleDishes = [
-    {
-      _id: 'dish-1',
+    makeDish({
+      id: 'dish-1',
       name: 'Paneer Tikka',
       price: 320,
       course: 'starter',
       cuisine: 'North Indian',
-      isVegetarian: true,
+      isVeg: true,
       description: 'Charred spiced cottage cheese',
       category: 'Starters',
       safe: true,
-    },
-    {
-      _id: 'dish-2',
+    }),
+    makeDish({
+      id: 'dish-2',
       name: 'Prawn Balchao',
       price: 550,
       course: 'main',
       cuisine: 'Goan',
-      isVegetarian: false,
+      isVeg: false,
       description: 'Fiery prawn curry',
       category: 'Mains',
       safe: false,
       reason: 'allergen',
       clashes: ['shellfish'],
-    },
-    {
-      _id: 'dish-3',
+    }),
+    makeDish({
+      id: 'dish-3',
       name: 'Gulab Jamun',
       price: 180,
       course: 'dessert',
       cuisine: 'Indian',
-      isVegetarian: true,
+      isVeg: true,
+      description: 'Sweet milk solids in syrup',
       category: 'Desserts',
       safe: false,
       reason: 'unconfirmed',
-    },
+    }),
   ];
 
   beforeEach(() => {
@@ -61,8 +84,8 @@ describe('GuestMenuList', () => {
     guestService.fetchGuestMenu.mockRejectedValue(new Error('Network error'));
     render(<GuestMenuList />);
 
-    expect(await screen.findByText(/we could not load the menu/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+    expect(await screen.findByText(MESSAGES.guest.loadMenuFailed)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: MESSAGES.guest.tryAgain })).toBeInTheDocument();
   });
 
   it('retries fetch when Try again button is clicked', async () => {
@@ -71,7 +94,7 @@ describe('GuestMenuList', () => {
       .mockResolvedValueOnce(sampleDishes);
 
     render(<GuestMenuList />);
-    const retryBtn = await screen.findByRole('button', { name: /try again/i });
+    const retryBtn = await screen.findByRole('button', { name: MESSAGES.guest.tryAgain });
     fireEvent.click(retryBtn);
 
     expect(await screen.findByText('Paneer Tikka')).toBeInTheDocument();
@@ -127,7 +150,7 @@ describe('GuestMenuList', () => {
     expect(await screen.findByText('Paneer Tikka')).toBeInTheDocument();
     expect(screen.getByText('Prawn Balchao')).toBeInTheDocument();
 
-    const checkbox = screen.getByLabelText(/hide dishes i cannot have/i);
+    const checkbox = screen.getByLabelText(MESSAGES.guest.hideUnsafeLabel);
     fireEvent.click(checkbox);
 
     expect(screen.getByText('Paneer Tikka')).toBeInTheDocument();
@@ -140,7 +163,7 @@ describe('GuestMenuList', () => {
     guestService.fetchGuestMenu.mockResolvedValue(sampleDishes);
     render(<GuestMenuList onChangeAllergies={onChangeAllergies} />);
 
-    const changeBtn = await screen.findByRole('button', { name: /change my allergies/i });
+    const changeBtn = await screen.findByRole('button', { name: MESSAGES.guest.changeAllergies });
     fireEvent.click(changeBtn);
 
     expect(onChangeAllergies).toHaveBeenCalledTimes(1);
@@ -150,10 +173,12 @@ describe('GuestMenuList', () => {
     guestService.fetchGuestMenu.mockResolvedValue(sampleDishes);
     render(<GuestMenuList />);
 
-    const refreshBtn = await screen.findByRole('button', { name: /refresh menu/i });
+    const refreshBtn = await screen.findByRole('button', { name: MESSAGES.guest.refreshMenu });
     fireEvent.click(refreshBtn);
 
-    expect(guestService.fetchGuestMenu).toHaveBeenCalledTimes(2);
+    await waitFor(() => {
+      expect(guestService.fetchGuestMenu).toHaveBeenCalledTimes(2);
+    });
   });
 
   it('renders categories and dishes', async () => {
@@ -195,7 +220,7 @@ describe('GuestMenuList', () => {
     guestService.fetchGuestMenu.mockResolvedValue([]);
     render(<GuestMenuList />);
 
-    expect(await screen.findByText(/the menu is not available right now/i)).toBeInTheDocument();
+    expect(await screen.findByText(MESSAGES.guest.emptyMenu)).toBeInTheDocument();
   });
 
   it('renders mandatory advisory note at the bottom', async () => {
@@ -203,7 +228,86 @@ describe('GuestMenuList', () => {
     render(<GuestMenuList />);
 
     expect(
-      await screen.findByText(/dish information is entered by the restaurant/i)
+      await screen.findByText(MESSAGES.guest.advisoryNote)
     ).toBeInTheDocument();
+  });
+
+  // Task 10a-fix2 additions:
+  // a dish with isVeg true shows "Vegetarian" and not "Non-vegetarian"
+  it('a dish with isVeg true shows "Vegetarian" and not "Non-vegetarian"', async () => {
+    guestService.fetchGuestMenu.mockResolvedValue([
+      makeDish({ id: 'd-veg', name: 'Palak Paneer', isVeg: true, safe: true }),
+    ]);
+    render(<GuestMenuList />);
+
+    expect(await screen.findByText('Palak Paneer')).toBeInTheDocument();
+    expect(screen.getByText('Vegetarian')).toBeInTheDocument();
+    expect(screen.queryByText('Non-vegetarian')).not.toBeInTheDocument();
+  });
+
+  // isVeg false and a dish with no isVeg show "Non-vegetarian"
+  it('isVeg false and a dish with no isVeg show "Non-vegetarian"', async () => {
+    const dishNoVeg = makeDish({ id: 'd-unknown', name: 'Mystery Item', safe: true });
+    delete dishNoVeg.isVeg;
+
+    guestService.fetchGuestMenu.mockResolvedValue([
+      makeDish({ id: 'd-nonveg', name: 'Butter Chicken', isVeg: false, safe: true }),
+      dishNoVeg,
+    ]);
+    render(<GuestMenuList />);
+
+    expect(await screen.findByText('Butter Chicken')).toBeInTheDocument();
+    expect(screen.getByText('Mystery Item')).toBeInTheDocument();
+    const nonVegLabels = screen.getAllByText('Non-vegetarian');
+    expect(nonVegLabels).toHaveLength(2);
+    expect(screen.queryByText('Vegetarian')).not.toBeInTheDocument();
+  });
+
+  // rendering five dishes causes no React key warning (spy on console.error and assert it was never called)
+  it('rendering five dishes causes no React key warning', async () => {
+    const errorSpy = vi.spyOn(console, 'error');
+    const fiveDishes = [1, 2, 3, 4, 5].map((n) =>
+      makeDish({ id: `dish-${n}`, name: `Dish ${n}`, safe: true })
+    );
+    guestService.fetchGuestMenu.mockResolvedValue(fiveDishes);
+
+    render(<GuestMenuList />);
+
+    expect(await screen.findByText('Dish 5')).toBeInTheDocument();
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  // a failed load shows loadMenuFailed and never the server's text (the mocked error carries the words SERVER TEXT)
+  it('a failed load shows loadMenuFailed and never the server text', async () => {
+    guestService.fetchGuestMenu.mockRejectedValue({
+      response: {
+        status: 500,
+        data: { message: 'SERVER TEXT: database down' },
+      },
+    });
+
+    render(<GuestMenuList />);
+
+    expect(await screen.findByText(MESSAGES.guest.loadMenuFailed)).toBeInTheDocument();
+    expect(screen.queryByText(/server text/i)).not.toBeInTheDocument();
+  });
+
+  // a safe dish whose raw allergens hold "sesame" never shows that word anywhere
+  it('a safe dish whose raw allergens hold "sesame" never shows that word anywhere', async () => {
+    guestService.fetchGuestMenu.mockResolvedValue([
+      makeDish({
+        id: 'd-tahini',
+        name: 'Tahini Noodle Bowl',
+        safe: true,
+        allergens: ['sesame'],
+      }),
+    ]);
+
+    render(<GuestMenuList />);
+
+    expect(await screen.findByText('Tahini Noodle Bowl')).toBeInTheDocument();
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    expect(screen.queryByText(/sesame/i)).not.toBeInTheDocument();
   });
 });

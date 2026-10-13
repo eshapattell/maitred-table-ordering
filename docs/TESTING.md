@@ -380,9 +380,9 @@ Manual checks:
 | Scan & Join Landing (`ScanLanding.jsx`) | Parses join route params `/r/:restaurantId/t/:tableNumber?qr=...`; validates name and phone with inline field error clearing on input; normalises phone; displays privacy notice; submits to `joinTable`; stores token and navigates to `/table`; handles 409 already-seated and expired table errors | `frontend/src/pages/ScanLanding.test.jsx` | Passed |
 | Allergy Questionnaire (`AllergyForm.jsx`) | Displays 10 canonical allergen checkboxes + mutually exclusive "I have no allergies" option; required validation; links describedby error to fieldset; clears field error on toggle; submits canonical array to `declareAllergies`; conditional ghost "Back to the menu" `onCancel` button (appears only when provided, disabled when submitting); disabled while saving | `frontend/src/Components/Guest/AllergyForm.test.jsx` | Passed |
 | Host Approval Banner (`PendingRequests.jsx`) | Renders null when empty; renders card per pending guest with accessible labels "Approve <name>" and "Decline <name>"; dispatches callbacks with guest ID; disables buttons when busy | `frontend/src/Components/Guest/PendingRequests.test.jsx` | Passed |
-| Guest Menu & Safety Flags (`GuestMenuList.jsx`) | Fetches `/api/sessions/menu`; displays Loader; displays ErrorMessage with retry; 403 ALLERGIES_REQUIRED or APPROVAL_PENDING triggers `onNeedRefresh`; summary counts ("You can have X of Y dishes"); "Hide dishes I cannot have" filter; course category groupings; displays server-evaluated unsafe warning note; safe dishes show no flags; mandatory advisory note | `frontend/src/Components/Guest/GuestMenuList.test.jsx` | Passed |
-| Guest Table Dispatcher (`GuestTable.jsx`) | Dispatches on `screenFor(data)`: "waiting", "allergies", "menu", "unknown"; header with `tableHeading` (`Table <N>` or `Your table`), welcome nickname, `peopleAtTable` count without waiting count; host-only PendingRequests calling `approveGuest`/`rejectGuest` and applying data directly via `applyData(answer)`; `declareAllergies` integration updating session on success; handles 403 `APPROVAL_PENDING` without error, other failures show `allergySaveFailed` without leaking server text; `onCancel` button when changing allergies returning to menu; zero `MESSAGES?.` fallbacks; renders real child components in tests | `frontend/src/pages/GuestTable.test.jsx` | Passed |
-| Source Rules & Architecture (`sourceRules.test.js`) | Enforces architecture boundaries, no raw HTML, no console calls, theme constraints, token boundaries, and verifies no file under `pages/`, `Components/` or `hooks/` contains `response?.data?.message`, `response.data.message` or `MESSAGES?.` | `frontend/src/utils/sourceRules.test.js` | Passed |
+| Guest Menu & Safety Flags (`GuestMenuList.jsx`) | Fetches `/api/sessions/menu`; displays plain Loader; displays ErrorMessage on load failure with `MESSAGES.guest.loadMenuFailed` and never server text; 403 triggers `onNeedRefresh`; summary counts; "Hide dishes I cannot have" filter; course category groupings; uses `dish.id` as React key (zero key warnings); diet label check (`dish.isVeg === true` -> "Vegetarian", else "Non-vegetarian"); safe dishes never render raw allergen tags; mandatory advisory note | `frontend/src/Components/Guest/GuestMenuList.test.jsx` | Passed |
+| Guest Table Dispatcher (`GuestTable.jsx`) | Dispatches on `screenFor(data)`: "waiting", "allergies", "menu", "unknown"; header with `tableHeading` (`Table <N>` or `Your table`), welcome nickname; `peopleAtTable` count hidden on waiting screen and displayed on allergy/menu screens; host-only PendingRequests calling `approveGuest`/`rejectGuest` and applying data directly via `applyData(answer)`; `declareAllergies` integration updating session on success; handles 403 `APPROVAL_PENDING` without error, other failures show `allergySaveFailed` without leaking server text; `onCancel` button when changing allergies returning to menu; zero `MESSAGES?.` fallbacks; renders real child components in tests | `frontend/src/pages/GuestTable.test.jsx` | Passed |
+| Source Rules & Architecture (`sourceRules.test.js`) | Enforces architecture boundaries, no raw HTML, no console calls, theme constraints, token boundaries, and verifies no file under `pages/`, `Components/`, `hooks/` or `services/` contains `response?.data?.message`, `response.data.message` or `MESSAGES?.` with self-checks verifying all target files and pattern detection | `frontend/src/utils/sourceRules.test.js` | Passed |
 | Navbar Customer Isolation (`Navbar.jsx`) | On `/table` and `/r/...`, renders brand as plain text `<span>` (no link to `/`); suppresses staff links and Sign out button; preserves staff links and brand link on staff routes | `frontend/src/Components/Common/Navbar.test.jsx` | Passed |
 
 ### Manual Verification Checklist
@@ -396,7 +396,7 @@ Manual checks:
    - Join as first guest: verify 201 response promotes to host, redirects to `/table`.
 2. **Host Approval Flow**:
    - Open second incognito window/device with the same table link and join with different nickname and phone.
-   - Second guest sees "Waiting for your host" screen.
+   - Second guest sees "Waiting for your host" screen and sees no people count line.
    - First guest (host) sees "Join requests" banner above their screen showing the second guest's nickname.
    - Host clicks "Approve <name>": within 5s (or upon next poll), the second guest moves to the allergy questionnaire screen.
    - Test "Decline <name>" with another guest: guest receives ended message card and token is dropped.
@@ -408,6 +408,7 @@ Manual checks:
    - Verify "Back to the menu" cancel button is not shown when answering for the first time.
 4. **Guest Menu Safety & Filters**:
    - Verify summary reads "You can have X of Y dishes." based on server evaluation.
+   - On the guest menu vegetarian dishes say Vegetarian and the others say Non-vegetarian.
    - Verify unsafe dishes show understated opacity and warning note (e.g. "Contains peanut" or "Allergens not yet confirmed by the restaurant").
    - Verify safe dishes have no badge or clutter.
    - Tick "Hide dishes I cannot have": verify unsafe dishes are filtered out.
@@ -448,5 +449,7 @@ Manual checks:
 | QR codes encode CLIENT_URL, which must be the public address before any code is printed | final review (deployment) | pending | open |
 | Guest session reconnection UX: token persistence is in sessionStorage only, so closing the browser tab loses the session and requires re-scanning the QR code | Future enhancement: session recovery token or encrypted cookie | pending | open |
 | Real-time updates via WebSockets / Server-Sent Events: guest polling is currently interval-based (5s), so approvals and menu updates have up to a 5-second latency | Future task: live WebSocket connection with Socket.io on /table | pending | open |
+| Test fixtures must use the exact shapes the server sends (the dish keys are listed in the 10a prompt); invented field names let tests pass while the real screen is wrong | closed by the one fixture helper and the rules test | GuestMenuList.test.jsx and sourceRules.test.js | open for later screens |
+
 
 

@@ -61,22 +61,22 @@ import * as guestService from '../services/guestService.js';
 describe('GuestTable page', () => {
   const sampleMenu = [
     {
-      _id: 'dish-1',
       id: 'dish-1',
       name: 'Garden Salad',
       price: 850,
       course: 'starter',
       category: 'veg',
+      isVeg: true,
       allergens: [],
       safe: true,
     },
     {
-      _id: 'dish-2',
       id: 'dish-2',
       name: 'Satay Skewers',
       price: 1200,
       course: 'main',
       category: 'non-veg',
+      isVeg: false,
       allergens: ['peanut'],
       safe: false,
       causes: ['peanut'],
@@ -570,6 +570,44 @@ describe('GuestTable page', () => {
     initialHookState.data = null;
     render(<GuestTable />);
     expect(screen.getByText(MESSAGES.guest.noToken)).toBeInTheDocument();
+  });
+
+  // 18. Waiting screen shows no people line, while allergy and menu screens still do
+  it('18. waiting screen shows no people line, while allergy and menu screens still do', async () => {
+    // waiting screen
+    initialHookState.status = 'ready';
+    initialHookState.data = {
+      session: { status: 'open', tableNumber: 5 },
+      me: { id: 'p1', nickname: 'Sam', status: 'pending' },
+      participants: [{ id: 'p1', nickname: 'Sam', status: 'pending' }],
+    };
+    const { unmount: u1 } = render(<GuestTable />);
+    expect(
+      screen.queryByText(/person at this table|people at this table/)
+    ).not.toBeInTheDocument();
+    u1();
+
+    // allergy screen
+    initialHookState.data = {
+      session: { status: 'open', tableNumber: 5 },
+      me: { id: 'p1', nickname: 'Sam', status: 'approved', allergiesDeclared: false },
+      participants: [{ id: 'p1', nickname: 'Sam', status: 'approved' }],
+    };
+    const { unmount: u2 } = render(<GuestTable />);
+    expect(screen.getByText('1 person at this table')).toBeInTheDocument();
+    u2();
+
+    // menu screen
+    initialHookState.data = {
+      session: { status: 'open', tableNumber: 5 },
+      me: { id: 'p1', nickname: 'Sam', status: 'approved', allergiesDeclared: true },
+      participants: [{ id: 'p1', nickname: 'Sam', status: 'approved' }],
+    };
+    render(<GuestTable />);
+    expect(await screen.findByText('1 person at this table')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(guestService.fetchGuestMenu).toHaveBeenCalled();
+    });
   });
 
   // Additional sanity tests for offline banner

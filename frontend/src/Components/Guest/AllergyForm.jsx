@@ -55,9 +55,9 @@ export const AllergyForm = ({
 
   return (
     <form onSubmit={handleSubmit} noValidate className="allergy-form">
-      <h2 className="allergy-title">Before you see the menu</h2>
+      <h2 className="allergy-title">{MESSAGES.guest.allergyTitle}</h2>
       <p className="allergy-intro">
-        Tell us about any allergies so we can mark the dishes that are not safe for you. We cannot know about allergies you do not tell us.
+        {MESSAGES.guest.allergyIntro}
       </p>
 
       {serverError && <ErrorMessage>{serverError}</ErrorMessage>}
@@ -67,7 +67,7 @@ export const AllergyForm = ({
         aria-describedby={formError ? errorId : undefined}
       >
         <legend id={legendId} className="field-label">
-          Your allergies
+          {MESSAGES.guest.allergyLegend}
         </legend>
 
         <div className="checkbox-grid">
@@ -90,7 +90,7 @@ export const AllergyForm = ({
               checked={hasNoAllergies}
               onChange={(e) => handleNoneToggle(e.target.checked)}
             />
-            I have no allergies
+            {MESSAGES.guest.noAllergiesLabel}
           </label>
         </div>
 
@@ -102,7 +102,7 @@ export const AllergyForm = ({
       </fieldset>
 
       <p className="staff-help-note">
-        If you are unsure about a dish, please ask a member of staff.
+        {MESSAGES.guest.staffHelpNote}
       </p>
 
       <div className="allergy-actions">
@@ -113,7 +113,7 @@ export const AllergyForm = ({
           aria-busy={submitting ? 'true' : undefined}
           className="btn--full"
         >
-          Show me the menu
+          {MESSAGES.guest.allergySubmit}
         </Button>
         {onCancel && (
           <Button

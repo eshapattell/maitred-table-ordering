@@ -42,11 +42,7 @@ export const GuestMenuList = ({ onChangeAllergies, onNeedRefresh }) => {
         }
         return;
       }
-      setError(
-        err?.response?.data?.message ||
-          MESSAGES?.guest?.loadMenuFailed ||
-          'We could not load the menu. Please try again.'
-      );
+      setError(MESSAGES.guest.loadMenuFailed);
     } finally {
       setLoading(false);
     }
@@ -57,7 +53,7 @@ export const GuestMenuList = ({ onChangeAllergies, onNeedRefresh }) => {
   }, [loadMenu]);
 
   if (loading) {
-    return <Loader label={MESSAGES?.guest?.loadingMenu || 'Loading the menu...'} />;
+    return <Loader />;
   }
 
   if (isAuthBlocked) {
@@ -69,7 +65,7 @@ export const GuestMenuList = ({ onChangeAllergies, onNeedRefresh }) => {
       <div className="guest-menu-error">
         <ErrorMessage>{error}</ErrorMessage>
         <Button variant="primary" onClick={loadMenu}>
-          {MESSAGES?.guest?.tryAgain || 'Try again'}
+          {MESSAGES.guest.tryAgain}
         </Button>
       </div>
     );
@@ -86,9 +82,7 @@ export const GuestMenuList = ({ onChangeAllergies, onNeedRefresh }) => {
     <div className="guest-menu-container">
       <div className="guest-menu-summary">
         <p className="guest-menu-summary-text">
-          {MESSAGES?.guest?.summary
-            ? MESSAGES.guest.summary(counts.safe, counts.total)
-            : `You can have ${counts.safe} of ${counts.total} dishes.`}
+          {MESSAGES.guest.summary(counts.safe, counts.total)}
         </p>
         <div className="guest-menu-controls">
           <label className="guest-hide-unsafe-toggle">
@@ -97,25 +91,21 @@ export const GuestMenuList = ({ onChangeAllergies, onNeedRefresh }) => {
               checked={hideUnsafe}
               onChange={(e) => setHideUnsafe(e.target.checked)}
             />
-            <span>
-              {MESSAGES?.guest?.hideUnsafeLabel || 'Hide dishes I cannot have'}
-            </span>
+            <span>{MESSAGES.guest.hideUnsafeLabel}</span>
           </label>
           <div className="guest-menu-actions">
             <Button variant="ghost" onClick={loadMenu}>
-              {MESSAGES?.guest?.refreshMenu || 'Refresh menu'}
+              {MESSAGES.guest.refreshMenu}
             </Button>
             <Button variant="ghost" onClick={onChangeAllergies}>
-              {MESSAGES?.guest?.changeAllergies || 'Change my allergies'}
+              {MESSAGES.guest.changeAllergies}
             </Button>
           </div>
         </div>
       </div>
 
       {items.length === 0 ? (
-        <p className="guest-menu-empty">
-          {MESSAGES?.guest?.emptyMenu || 'The menu is not available right now.'}
-        </p>
+        <p className="guest-menu-empty">{MESSAGES.guest.emptyMenu}</p>
       ) : (
         <div className="guest-menu-list">
           {groups.map((group) => (
@@ -123,7 +113,7 @@ export const GuestMenuList = ({ onChangeAllergies, onNeedRefresh }) => {
               <h2 className="guest-menu-section-title">{group.category}</h2>
               <div className="guest-menu-dishes">
                 {group.items.map((dish) => (
-                  <article key={dish._id} className={dishArticleClass(dish)}>
+                  <article key={dish.id} className={dishArticleClass(dish)}>
                     <div className="guest-dish-header">
                       <h3 className="guest-dish-name">{dish.name}</h3>
                       <span className="guest-dish-price">
@@ -132,13 +122,15 @@ export const GuestMenuList = ({ onChangeAllergies, onNeedRefresh }) => {
                     </div>
                     <div className="guest-dish-meta">
                       <span className="guest-dish-course">
-                        {OPTION_LABELS?.course?.[dish.course] || dish.course}
+                        {OPTION_LABELS.course[dish.course] ?? dish.course}
                       </span>
                       {dish.cuisine && (
-                        <span className="guest-dish-cuisine">{dish.cuisine}</span>
+                        <span className="guest-dish-cuisine">
+                          {dish.cuisine}
+                        </span>
                       )}
                       <span className="guest-dish-diet">
-                        {dish.isVegetarian ? 'Vegetarian' : 'Non-vegetarian'}
+                        {dish.isVeg === true ? 'Vegetarian' : 'Non-vegetarian'}
                       </span>
                     </div>
                     {dish.description && (
@@ -160,10 +152,7 @@ export const GuestMenuList = ({ onChangeAllergies, onNeedRefresh }) => {
         </div>
       )}
 
-      <p className="guest-menu-note">
-        {MESSAGES?.guest?.advisoryNote ||
-          'Dish information is entered by the restaurant. If you are unsure, please ask a member of staff.'}
-      </p>
+      <p className="guest-menu-note">{MESSAGES.guest.advisoryNote}</p>
     </div>
   );
 };
