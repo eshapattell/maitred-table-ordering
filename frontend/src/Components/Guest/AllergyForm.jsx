@@ -4,8 +4,14 @@ import { ALLERGENS } from '../../utils/allergens.js';
 import { validateAllergyAnswer } from '../../utils/guestAllergies.js';
 import Button from '../Common/Button.jsx';
 import ErrorMessage from '../Common/ErrorMessage.jsx';
+import { MESSAGES } from '../../utils/messages.js';
 
-export const AllergyForm = ({ onSubmit, submitting = false, error: serverError = null }) => {
+export const AllergyForm = ({
+  onSubmit,
+  submitting = false,
+  error: serverError = null,
+  onCancel,
+}) => {
   const [ticked, setTicked] = useState([]);
   const [hasNoAllergies, setHasNoAllergies] = useState(false);
   const [formError, setFormError] = useState(null);
@@ -99,17 +105,31 @@ export const AllergyForm = ({ onSubmit, submitting = false, error: serverError =
         If you are unsure about a dish, please ask a member of staff.
       </p>
 
-      <Button
-        type="submit"
-        variant="primary"
-        disabled={submitting}
-        aria-busy={submitting ? 'true' : undefined}
-        className="btn--full"
-      >
-        Show me the menu
-      </Button>
+      <div className="allergy-actions">
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={submitting}
+          aria-busy={submitting ? 'true' : undefined}
+          className="btn--full"
+        >
+          Show me the menu
+        </Button>
+        {onCancel && (
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={submitting}
+            onClick={onCancel}
+            className="btn--full"
+          >
+            {MESSAGES.guest.backToMenu}
+          </Button>
+        )}
+      </div>
     </form>
   );
 };
 
 export default AllergyForm;
+

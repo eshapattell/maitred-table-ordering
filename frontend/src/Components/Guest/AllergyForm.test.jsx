@@ -129,4 +129,26 @@ describe('AllergyForm component', () => {
       screen.getByText('You must be approved by the host first')
     ).toBeInTheDocument();
   });
+
+  test('11. onCancel button appears only when prop is given and calls it when clicked', () => {
+    const handleCancel = vi.fn();
+    const { rerender } = render(<AllergyForm onSubmit={vi.fn()} />);
+
+    expect(screen.queryByRole('button', { name: 'Back to the menu' })).toBeNull();
+
+    rerender(<AllergyForm onSubmit={vi.fn()} onCancel={handleCancel} />);
+    const cancelBtn = screen.getByRole('button', { name: 'Back to the menu' });
+    expect(cancelBtn).toBeInTheDocument();
+
+    fireEvent.click(cancelBtn);
+    expect(handleCancel).toHaveBeenCalledTimes(1);
+  });
+
+  test('12. onCancel button is disabled while submitting is true', () => {
+    render(<AllergyForm onSubmit={vi.fn()} submitting={true} onCancel={vi.fn()} />);
+
+    const cancelBtn = screen.getByRole('button', { name: 'Back to the menu' });
+    expect(cancelBtn).toBeDisabled();
+  });
 });
+

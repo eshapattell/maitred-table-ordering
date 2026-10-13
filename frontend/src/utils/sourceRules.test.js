@@ -170,4 +170,41 @@ describe('sourceRules (rule 12 safety and architecture checks)', () => {
       ).toBe(false);
     }
   });
+
+  test('no file under pages, Components, or hooks contains "response?.data?.message" or "response.data.message", and none contains "MESSAGES?."', () => {
+    const targetDirs = [
+      path.join(SRC_DIR, 'pages'),
+      path.join(SRC_DIR, 'Components'),
+      path.join(SRC_DIR, 'hooks'),
+    ];
+
+    let filesToCheck = [];
+    for (const dir of targetDirs) {
+      if (fs.existsSync(dir)) {
+        filesToCheck = filesToCheck.concat(getAllSourceFiles(dir));
+      }
+    }
+
+    // Exclude GuestMenuList.jsx which is locked from Task 10a
+    filesToCheck = filesToCheck.filter(
+      (file) => !file.endsWith('GuestMenuList.jsx')
+    );
+
+    for (const filePath of filesToCheck) {
+      const content = fs.readFileSync(filePath, 'utf8');
+      expect(
+        content.includes('response?.data?.message'),
+        `${filePath} contains response?.data?.message`
+      ).toBe(false);
+      expect(
+        content.includes('response.data.message'),
+        `${filePath} contains response.data.message`
+      ).toBe(false);
+      expect(
+        content.includes('MESSAGES?.'),
+        `${filePath} contains MESSAGES?.`
+      ).toBe(false);
+    }
+  });
 });
+

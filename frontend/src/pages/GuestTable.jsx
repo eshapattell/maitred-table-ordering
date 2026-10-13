@@ -11,26 +11,30 @@ import {
   screenFor,
   isHost,
   diners,
+  pendingRequests,
   endedMessage,
 } from '../utils/guestSession.js';
-import { approveGuest, rejectGuest } from '../services/guestService.js';
+import {
+  declareAllergies,
+  approveGuest,
+  rejectGuest,
+} from '../services/guestService.js';
 import { MESSAGES } from '../utils/messages.js';
 
 export const GuestTable = () => {
-  const { status, data, offline, error, endedCode, refresh, applyData } =
+  const { status, data, offline, endedCode, refresh, applyData } =
     useGuestTable();
 
   const [screenOverride, setScreenOverride] = useState(null);
+  const [allergySubmitting, setAllergySubmitting] = useState(false);
+  const [allergyError, setAllergyError] = useState(null);
   const [busyRequest, setBusyRequest] = useState(false);
   const [hostActionError, setHostActionError] = useState(null);
 
   if (status === 'noToken') {
     return (
       <div className="guest-no-token-screen">
-        <p className="guest-no-token-body">
-          {MESSAGES?.guest?.noActiveSession ||
-            'Scan the QR code at your table to join.'}
-        </p>
+        <p className="guest-no-token-body">{MESSAGES.guest.noToken}</p>
       </div>
     );
   }
@@ -42,9 +46,9 @@ export const GuestTable = () => {
   if (status === 'error') {
     return (
       <div className="guest-table-error">
-        <ErrorMessage>{error}</ErrorMessage>
+        <ErrorMessage>{MESSAGES.guest.loadFailed}</ErrorMessage>
         <Button variant="primary" onClick={refresh}>
-          {MESSAGES?.common?.tryAgain || 'Try again'}
+          {MESSAGES.common.tryAgain}
         </Button>
       </div>
     );
@@ -53,36 +57,27 @@ export const GuestTable = () => {
   if (status === 'ended') {
     return (
       <div className="guest-ended-screen">
+        <h1 className="guest-ended-title">{MESSAGES.guest.endedTitle}</h1>
         <p className="guest-ended-body">{endedMessage(endedCode)}</p>
       </div>
     );
   }
 
   // status === 'ready'
-  const approvedDiners = diners(data);
-  const seatedCount =
-    typeof approvedDiners?.seated === 'number'
-      ? approvedDiners.seated
-      : Array.isArray(approvedDiners)
-        ? approvedDiners.length
-        : 0;
-  const pendingCount =
-    typeof approvedDiners?.pending === 'number'
-      ? approvedDiners.pending
-      : Array.isArray(data?.pending)
-        ? data.pending.length
-        : 0;
-
   const handleApprove = async (id) => {
     setBusyRequest(true);
     setHostActionError(null);
     try {
-      await approveGuest(id);
-      await refresh();
+      const answer = await approveGuest(id);
+      applyData(answer);
     } catch (err) {
-      setHostActionError(
-        err?.response?.data?.message || 'Could not approve guest.'
-      );
+      const respStatus = err?.response?.status;
+      if (respStatus === 404 || respStatus === 403) {
+        setHostActionError(MESSAGES.guest.requestChanged);
+        await refresh();
+      } else {
+        setHostActionError(MESSAGES.guest.actionFailed);
+      }
     } finally {
       setBusyRequest(false);
     }
@@ -92,14 +87,55 @@ export const GuestTable = () => {
     setBusyRequest(true);
     setHostActionError(null);
     try {
-      await rejectGuest(id);
-      await refresh();
+      const answer = await rejectGuest(id);
+      applyData(answer);
     } catch (err) {
-      setHostActionError(
-        err?.response?.data?.message || 'Could not decline guest.'
-      );
+      const respStatus = err?.response?.status;
+      if (respStatus === 404 || respStatus === 403) {
+        setHostActionError(MESSAGES.guest.requestChanged);
+        await refresh();
+      } else {
+        setHostActionError(MESSAGES.guest.actionFailed);
+      }
     } finally {
       setBusyRequest(false);
+    }
+  };
+
+  const handleAllergySubmit = async (allergies) => {
+    if (allergySubmitting) return;
+    setAllergySubmitting(true);
+    setAllergyError(null);
+    try {
+      const result = await declareAllergies(allergies);
+      if (applyData) {
+        if (result?.session && result?.me) {
+          applyData(result);
+        } else {
+          applyData({
+            ...data,
+            me: {
+              ...data?.me,
+              ...(result?.me || {}),
+              allergiesDeclared: true,
+              allergies,
+            },
+          });
+        }
+      }
+      setScreenOverride(null);
+      await refresh();
+    } catch (err) {
+      if (
+        err?.response?.status === 403 &&
+        err?.response?.data?.code === 'APPROVAL_PENDING'
+      ) {
+        await refresh();
+      } else {
+        setAllergyError(MESSAGES.guest.allergySaveFailed);
+      }
+    } finally {
+      setAllergySubmitting(false);
     }
   };
 
@@ -109,47 +145,34 @@ export const GuestTable = () => {
       ? screenOverride || baseScreen
       : baseScreen;
 
-  const alreadyAnswered =
-    data?.me?.allergiesDeclared === true || Array.isArray(data?.me?.allergies);
-
-  const handleAllergiesSaved = (updatedMe) => {
-    if (applyData) {
-      applyData((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          me: {
-            ...prev.me,
-            ...(updatedMe || {}),
-            allergiesDeclared: true,
-          },
-        };
-      });
-    } else {
-      refresh();
-    }
-    setScreenOverride('menu');
-  };
+  const tableHeading =
+    data?.session?.tableNumber != null
+      ? MESSAGES.guest.tableHeading(data.session.tableNumber)
+      : MESSAGES.guest.yourTable;
 
   return (
     <div className="guest-table-page">
       {offline && (
         <div className="guest-offline-banner" role="status">
-          {MESSAGES?.guest?.offlineBanner || 'Trying to reconnect...'}
+          {MESSAGES.guest.offlineBanner}
         </div>
       )}
 
       <header className="guest-table-header">
-        <h1 className="guest-table-title">{`Table ${data?.tableNumber ?? ''}`}</h1>
-        <p className="guest-table-subtitle">{`Welcome, ${data?.me?.nickname ?? ''}`}</p>
-        <p className="guest-table-summary">{`${seatedCount} seated · ${pendingCount} waiting`}</p>
+        <h1 className="guest-table-title">{tableHeading}</h1>
+        <p className="guest-table-subtitle">
+          {MESSAGES.guest.welcome(data?.me?.nickname || '')}
+        </p>
+        <p className="guest-table-summary">
+          {MESSAGES.guest.peopleAtTable(diners(data).length)}
+        </p>
       </header>
 
       {isHost(data?.me) && (
         <>
           {hostActionError && <ErrorMessage>{hostActionError}</ErrorMessage>}
           <PendingRequests
-            requests={data?.pending}
+            requests={pendingRequests(data)}
             busy={busyRequest}
             onApprove={handleApprove}
             onReject={handleReject}
@@ -161,21 +184,20 @@ export const GuestTable = () => {
         {activeScreen === 'waiting' && (
           <div className="guest-waiting-screen">
             <h2 className="guest-waiting-title">
-              {MESSAGES?.guest?.waitingHeading || 'Waiting for your host'}
+              {MESSAGES.guest.waitingTitle}
             </h2>
-            <p className="guest-waiting-body">
-              {MESSAGES?.guest?.waitingBody ||
-                'Your request has been sent. You will be seated once the host approves.'}
-            </p>
+            <p className="guest-waiting-body">{MESSAGES.guest.waitingBody}</p>
+            <p className="guest-waiting-note">{MESSAGES.guest.waitingNote}</p>
           </div>
         )}
 
         {activeScreen === 'allergies' && (
           <AllergyForm
-            current={data?.me?.allergies}
-            onSaved={handleAllergiesSaved}
+            onSubmit={handleAllergySubmit}
+            submitting={allergySubmitting}
+            error={allergyError}
             onCancel={
-              alreadyAnswered ? () => setScreenOverride('menu') : undefined
+              baseScreen === 'menu' ? () => setScreenOverride(null) : undefined
             }
           />
         )}
@@ -187,14 +209,15 @@ export const GuestTable = () => {
           />
         )}
 
-        {activeScreen === 'unknown' && (
-          <div className="guest-unknown-screen">
-            <p className="guest-unknown-body">
-              {MESSAGES?.guest?.unknownScreen ||
-                'We could not open this screen. Please ask a member of staff.'}
-            </p>
-          </div>
-        )}
+        {activeScreen !== 'waiting' &&
+          activeScreen !== 'allergies' &&
+          activeScreen !== 'menu' && (
+            <div className="guest-unknown-screen">
+              <p className="guest-unknown-body">
+                {MESSAGES.guest.unknownScreen}
+              </p>
+            </div>
+          )}
       </main>
     </div>
   );
