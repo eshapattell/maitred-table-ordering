@@ -364,8 +364,54 @@ Manual checks:
 | Table Card (`TableCard.jsx`) | Heading Table N; three accessible buttons (Show, Replace, Delete); disabled when busy; dispatches handlers with table | `frontend/src/Components/Owner/TableCard.test.jsx` | Passed |
 | QR Display (`QRDisplay.jsx`) | Displays img only for valid PNG base64; http(s) guest link; download filename format; Print button calls window.print; updated qrCaption wording; zero hex secret leaks in visible text | `frontend/src/Components/Owner/QRDisplay.test.jsx` | Passed |
 | Menu Manager Page (`MenuManager.jsx`) | Full listing, summary counts, section grouping, status chips, filter group aria-label "Filter dishes", filters with counts, add/edit/review modals, availability toggle, 409 conflict reload, generic error handling | `frontend/src/pages/MenuManager.test.jsx` | Passed |
-| Table Manager Page (`TableManager.jsx`) | Table grid & empty state; numeric input validation (1-500); add/rotate/delete modals; split replace-QR flow (replacedQrLoadFailed banner on QR fetch failure without generic error); 409 table exists / session active blocked; zero 32-hex token leaks; busy locks | `frontend/src/pages/TableManager.test.jsx` | Passed |
-| Frontend Architecture & Safety Rules (`sourceRules.test.js`) | Zero dangerouslySetInnerHTML, innerHTML, localStorage, dialog, eval, new Function; no console in pages/components/services; index.css scoped print (body:has(.qr-print) #root); no color literals outside :root; index.html icon & title | `frontend/src/utils/sourceRules.test.js` | Passed |
+| Table Manager Page (`TableManager.jsx`) | Table grid & empty state; numeric input validation (1-500); add/rotate/delete modals; split replace-QR flow (replacedQrLoadFailed banner on QR fetch failure without generic error); 409 table exists / session active blocked; zero 32-hex token leaks; busy locks; Cancel button autofocus on rotate and delete modals | `frontend/src/pages/TableManager.test.jsx` | Passed |
+| Accessible Modal Focus (`Modal.jsx`) | createPortal into body, aria-modal, aria-labelledby heading, Escape/backdrop close, click inside isolated, busy blocks close/escape, focus trap (Tab/Shift+Tab wrap), initial focus on [data-autofocus="true"] element inside dialog (fallback to first focusable in modal-body, then Close button), ignores outside autofocus, scroll lock & restore | `frontend/src/Components/Common/Modal.test.jsx` | Passed |
+| Frontend Architecture & Safety Rules (`sourceRules.test.js`) | Zero dangerouslySetInnerHTML, innerHTML, localStorage, dialog, eval, new Function; no console in pages/components/services; index.css scoped print (body:has(.qr-print) #root); no color literals outside :root; index.html icon & title; guest files contain zero .allergens / allergensConfirmed; staff/guest token separation; sessionStorage isolated to services | `frontend/src/utils/sourceRules.test.js` | Passed |
+
+## Guest screens (Task 10a)
+
+### Automated Test Coverage
+
+| Component / Utility | Expected Result | Test File | Status |
+| :--- | :--- | :--- | :--- |
+| Guest API Client (`guestApi.js`) | baseURL `/api`, timeout 15000ms; Bearer token injection from `sessionStorage` (`STORAGE_KEYS.GUEST_TOKEN`); 401 response interceptor detects `endedCodeOf` (SESSION_CLOSED, PARTICIPANT_REMOVED, INVALID_TOKEN), drops guest token, dispatches `EVENTS.GUEST_ENDED`; leaves other 401s untouched; zero `AUTH_TOKEN` string | `frontend/src/services/guestApi.test.js` | Passed |
+| Guest Service (`guestService.js`) | `joinTable`, `fetchMyTable`, `declareAllergies`, `fetchGuestMenu`, `approveGuest`, `rejectGuest`; URL-encodes IDs; token persistence helpers (`saveGuestToken`, `readGuestToken`, `clearGuestToken`); zero raw phone logging; fail-closed empty arrays on malformed menu responses | `frontend/src/services/guestService.test.js` | Passed |
+| Guest Table Polling Hook (`useGuestTable.js`) | Status states: `noToken`, `loading`, `error`, `ended`, `ready`; polls `GET /api/sessions/me` every 5000ms; pauses when document visibility is hidden, resumes immediately when visible; listens to `EVENTS.GUEST_ENDED`; exports `refresh` and `applyData` | `frontend/src/hooks/useGuestTable.test.jsx` | Passed |
+| Scan & Join Landing (`ScanLanding.jsx`) | Parses join route params `/r/:restaurantId/t/:tableNumber?qr=...`; validates name and phone with inline field error clearing on input; normalises phone; displays privacy notice; submits to `joinTable`; stores token and navigates to `/table`; handles 409 already-seated and expired table errors | `frontend/src/pages/ScanLanding.test.jsx` | Passed |
+| Allergy Questionnaire (`AllergyForm.jsx`) | Displays 10 canonical allergen checkboxes + mutually exclusive "I have no allergies" option; required validation; links describedby error to fieldset; clears field error on toggle; submits canonical array to `declareAllergies`; conditional Cancel button; disabled while saving | `frontend/src/Components/Guest/AllergyForm.test.jsx` | Passed |
+| Host Approval Banner (`PendingRequests.jsx`) | Renders null when empty; renders card per pending guest with accessible labels "Approve <name>" and "Decline <name>"; dispatches callbacks with guest ID; disables buttons when busy | `frontend/src/Components/Guest/PendingRequests.test.jsx` | Passed |
+| Guest Menu & Safety Flags (`GuestMenuList.jsx`) | Fetches `/api/sessions/menu`; displays Loader; displays ErrorMessage with retry; 403 ALLERGIES_REQUIRED or APPROVAL_PENDING triggers `onNeedRefresh`; summary counts ("You can have X of Y dishes"); "Hide dishes I cannot have" filter; course category groupings; displays server-evaluated unsafe warning note; safe dishes show no flags; mandatory advisory note | `frontend/src/Components/Guest/GuestMenuList.test.jsx` | Passed |
+| Guest Table Dispatcher (`GuestTable.jsx`) | Dispatches on `screenFor(data)`: "waiting", "allergies", "menu", "unknown"; header with table number, nickname, diner counts; offline reconnection banner; host-only PendingRequests banner with approve/reject actions; local screen override for changing allergies; prevents cancelling unanswered allergies | `frontend/src/pages/GuestTable.test.jsx` | Passed |
+| Navbar Customer Isolation (`Navbar.jsx`) | On `/table` and `/r/...`, renders brand as plain text `<span>` (no link to `/`); suppresses staff links and Sign out button; preserves staff links and brand link on staff routes | `frontend/src/Components/Common/Navbar.test.jsx` | Passed |
+
+### Manual Verification Checklist
+
+1. **Table QR Scan & Join**:
+   - Open a table link `/r/<restaurantId>/t/<tableNumber>?qr=<token>` on a mobile browser or viewport (375px).
+   - Verify table number is pre-filled and heading reads "Join Table <N>".
+   - Verify privacy notice about phone number usage is clearly visible.
+   - Enter invalid inputs (blank nickname, short phone); verify inline errors appear.
+   - Fix inputs; verify errors clear immediately on change.
+   - Join as first guest: verify 201 response promotes to host, redirects to `/table`.
+2. **Host Approval Flow**:
+   - Open second incognito window/device with the same table link and join with different nickname and phone.
+   - Second guest sees "Waiting for your host" screen.
+   - First guest (host) sees "Join requests" banner above their screen showing the second guest's nickname.
+   - Host clicks "Approve <name>": within 5s (or upon next poll), the second guest moves to the allergy questionnaire screen.
+   - Test "Decline <name>" with another guest: guest receives ended message card and token is dropped.
+3. **Allergy Questionnaire**:
+   - On the allergy screen, verify attempt to submit without ticking any option or "none" shows error message.
+   - Tick "Peanut", then tick "I have no allergies": verify "Peanut" unchecks automatically.
+   - Tick "Peanut" and "Dairy", then submit: verify server records allergies and screen advances to menu.
+   - Verify Cancel button is not shown when answering for the first time.
+4. **Guest Menu Safety & Filters**:
+   - Verify summary reads "You can have X of Y dishes." based on server evaluation.
+   - Verify unsafe dishes show understated opacity and warning note (e.g. "Contains peanut" or "Allergens not yet confirmed by the restaurant").
+   - Verify safe dishes have no badge or clutter.
+   - Tick "Hide dishes I cannot have": verify unsafe dishes are filtered out.
+   - Click "Change my allergies": verify AllergyForm appears pre-filled with existing selections; Cancel button is available and returns to menu without modifying selections.
+5. **Session Termination**:
+   - When table session is closed by staff or host, guest polling receives 401 SESSION_CLOSED: token is cleared from `sessionStorage`, and calm ended message is displayed.
 
 ## Known gaps
 
@@ -383,7 +429,7 @@ Manual checks:
 | Frontend allergen list must match KNOWN_ALLERGENS exactly | Task 8a (frontend foundation) | allergens.test.js | closed (Task 8a) |
 | The auth token lives in sessionStorage, readable by any script that runs on the page | deployment and final review: add a Content-Security-Policy, keep dependencies minimal, never render HTML from data | pending | open |
 | npm audit: review production dependencies before submission | final review | pending | open |
-| Public menu returns raw allergen tags: guest screens must use the server-computed safe flag from the session menu and never compute safety in the client | Server-computed flag implemented in `GET /api/sessions/menu` (Task 9a); frontend guest view must consume this endpoint | `sessionRoutes.test.js` | half closed |
+| Public menu returns raw allergen tags: guest screens must use the server-computed safe flag from the session menu and never compute safety in the client | Server-computed flag implemented in `GET /api/sessions/menu` (Task 9a); frontend guest screens consume this endpoint and never inspect dish allergen tags (Task 10a) | `sessionRoutes.test.js` and `GuestMenuList.test.jsx` | closed (Task 10a) |
 | Menu item names are not unique per restaurant (needs a unique index, which is a model change) | hardening task | pending | open |
 | Seeded demo accounts must never exist in a deployed database (seed already refuses production) | final review | assertSeedAllowed tests now | half closed |
 | Demo menu allergen tags are checked by keyword rules and a manual skim, not by a food safety professional | final review (owner skims; the report states the limitation) | pending | open |
@@ -398,4 +444,7 @@ Manual checks:
 | Allergen confirmation is a human check: the screen requires an explicit tick but cannot verify the recipe | the report states the limitation | pending | open |
 | Staff session controls (approve, reject, reset, remove) exist in the API but have no screen yet | kitchen screens task | pending | open |
 | QR codes encode CLIENT_URL, which must be the public address before any code is printed | final review (deployment) | pending | open |
+| Guest session reconnection UX: token persistence is in sessionStorage only, so closing the browser tab loses the session and requires re-scanning the QR code | Future enhancement: session recovery token or encrypted cookie | pending | open |
+| Real-time updates via WebSockets / Server-Sent Events: guest polling is currently interval-based (5s), so approvals and menu updates have up to a 5-second latency | Future task: live WebSocket connection with Socket.io on /table | pending | open |
+
 

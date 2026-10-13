@@ -104,4 +104,70 @@ describe('sourceRules (rule 12 safety and architecture checks)', () => {
     const expectedTitle = '<title>Ma\u00eetreD</title>';
     expect(content).toContain(expectedTitle);
   });
+
+  test('guest files must never contain ".allergens" or "allergensConfirmed"', () => {
+    const guestFiles = [
+      path.join(SRC_DIR, 'pages', 'GuestTable.jsx'),
+      path.join(SRC_DIR, 'pages', 'ScanLanding.jsx'),
+      path.join(SRC_DIR, 'services', 'guestApi.js'),
+      path.join(SRC_DIR, 'services', 'guestService.js'),
+      path.join(SRC_DIR, 'hooks', 'useGuestTable.js'),
+      path.join(SRC_DIR, 'utils', 'guestJoin.js'),
+      path.join(SRC_DIR, 'utils', 'guestSession.js'),
+      path.join(SRC_DIR, 'utils', 'guestAllergies.js'),
+      path.join(SRC_DIR, 'utils', 'guestMenu.js'),
+      ...(fs.existsSync(path.join(SRC_DIR, 'Components', 'Guest'))
+        ? getAllSourceFiles(path.join(SRC_DIR, 'Components', 'Guest'))
+        : []),
+    ];
+
+    for (const file of guestFiles) {
+      if (fs.existsSync(file)) {
+        const content = fs.readFileSync(file, 'utf8');
+        expect(content.includes('.allergens'), `${file} must not contain .allergens`).toBe(false);
+        expect(content.includes('allergensConfirmed'), `${file} must not contain allergensConfirmed`).toBe(false);
+      }
+    }
+  });
+
+  test('staff client (services/api.js) must not contain "GUEST_TOKEN"', () => {
+    const apiPath = path.join(SRC_DIR, 'services', 'api.js');
+    const content = fs.readFileSync(apiPath, 'utf8');
+    expect(content.includes('GUEST_TOKEN')).toBe(false);
+  });
+
+  test('guest client (services/guestApi.js) must not contain "AUTH_TOKEN"', () => {
+    const guestApiPath = path.join(SRC_DIR, 'services', 'guestApi.js');
+    const content = fs.readFileSync(guestApiPath, 'utf8');
+    expect(content.includes('AUTH_TOKEN')).toBe(false);
+  });
+
+  test('STORAGE_KEYS.GUEST_TOKEN is referenced only in constants.js, guestApi.js and guestService.js', () => {
+    const allSource = getAllSourceFiles(SRC_DIR);
+    const allowed = ['constants.js', 'guestApi.js', 'guestService.js'];
+    for (const file of allSource) {
+      const basename = path.basename(file);
+      if (!allowed.includes(basename)) {
+        const content = fs.readFileSync(file, 'utf8');
+        expect(
+          content.includes('GUEST_TOKEN'),
+          `${file} must not reference GUEST_TOKEN`
+        ).toBe(false);
+      }
+    }
+  });
+
+  test('pages and Components must never contain "sessionStorage"', () => {
+    const files = [
+      ...getAllSourceFiles(path.join(SRC_DIR, 'pages')),
+      ...getAllSourceFiles(path.join(SRC_DIR, 'Components')),
+    ];
+    for (const file of files) {
+      const content = fs.readFileSync(file, 'utf8');
+      expect(
+        content.includes('sessionStorage'),
+        `${file} must not contain sessionStorage`
+      ).toBe(false);
+    }
+  });
 });

@@ -484,5 +484,45 @@ describe('TableManager page', () => {
     expect(screen.queryByText(MESSAGES.owner.tables.errors.generic)).toBeNull();
     expect(screen.queryByRole('dialog')).toBeNull();
   });
+
+  test('17. focus lands on Cancel button when replace QR confirmation dialog opens', async () => {
+    tableService.fetchTables.mockResolvedValue(dummyTables);
+    render(<TableManager />);
+    await screen.findByText('Table 1');
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: MESSAGES.owner.tables.replaceQr(1),
+      })
+    );
+
+    const dialog = await screen.findByRole('dialog', {
+      name: MESSAGES.owner.tables.rotateModalTitle(1),
+    });
+    expect(dialog).toBeInTheDocument();
+
+    const cancelBtn = screen.getByRole('button', { name: MESSAGES.common.cancel });
+    expect(document.activeElement).toBe(cancelBtn);
+  });
+
+  test('18. focus lands on Cancel button when delete table confirmation dialog opens', async () => {
+    tableService.fetchTables.mockResolvedValue(dummyTables);
+    render(<TableManager />);
+    await screen.findByText('Table 1');
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: MESSAGES.owner.tables.deleteTable(1),
+      })
+    );
+
+    const dialog = await screen.findByRole('dialog', {
+      name: MESSAGES.owner.tables.deleteModalTitle(1),
+    });
+    expect(dialog).toBeInTheDocument();
+
+    const cancelBtn = screen.getByRole('button', { name: MESSAGES.common.cancel });
+    expect(document.activeElement).toBe(cancelBtn);
+  });
 });
 

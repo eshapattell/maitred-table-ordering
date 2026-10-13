@@ -15,17 +15,22 @@ export const Modal = ({ title, onClose, busy = false, children }) => {
 
     const focusableSelector =
       'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
-    const bodyFocusable = dialogRef.current
-      ?.querySelector('.modal-body')
-      ?.querySelectorAll(focusableSelector);
-    if (bodyFocusable && bodyFocusable.length > 0) {
-      bodyFocusable[0].focus();
+    const autoFocusEl = dialogRef.current?.querySelector('[data-autofocus="true"]');
+    if (autoFocusEl && typeof autoFocusEl.focus === 'function') {
+      autoFocusEl.focus();
     } else {
-      const closeBtn = dialogRef.current?.querySelector('.modal-close-btn');
-      if (closeBtn && typeof closeBtn.focus === 'function') {
-        closeBtn.focus();
+      const bodyFocusable = dialogRef.current
+        ?.querySelector('.modal-body')
+        ?.querySelectorAll(focusableSelector);
+      if (bodyFocusable && bodyFocusable.length > 0) {
+        bodyFocusable[0].focus();
       } else {
-        dialogRef.current?.focus();
+        const closeBtn = dialogRef.current?.querySelector('.modal-close-btn');
+        if (closeBtn && typeof closeBtn.focus === 'function') {
+          closeBtn.focus();
+        } else {
+          dialogRef.current?.focus();
+        }
       }
     }
 

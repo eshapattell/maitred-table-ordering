@@ -180,4 +180,57 @@ describe('Modal component', () => {
     expect(dialog).toBeInTheDocument();
     expect(document.body.contains(dialog)).toBe(true);
   });
+
+  test('10. focuses data-autofocus element when present inside dialog', () => {
+    render(
+      <Modal title="Autofocus Test" onClose={vi.fn()}>
+        <button type="button" data-testid="first-btn">
+          First Button
+        </button>
+        <button type="button" data-autofocus="true" data-testid="cancel-btn">
+          Cancel Button
+        </button>
+      </Modal>
+    );
+
+    const cancelBtn = screen.getByTestId('cancel-btn');
+    expect(document.activeElement).toBe(cancelBtn);
+  });
+
+  test('11. falls back to first focusable element when no data-autofocus present', () => {
+    render(
+      <Modal title="Fallback Test" onClose={vi.fn()}>
+        <button type="button" data-testid="first-btn">
+          First Button
+        </button>
+        <button type="button" data-testid="second-btn">
+          Second Button
+        </button>
+      </Modal>
+    );
+
+    const firstBtn = screen.getByTestId('first-btn');
+    expect(document.activeElement).toBe(firstBtn);
+  });
+
+  test('12. ignores data-autofocus element outside dialog', () => {
+    const outsideBtn = document.createElement('button');
+    outsideBtn.setAttribute('data-autofocus', 'true');
+    outsideBtn.textContent = 'Outside';
+    document.body.appendChild(outsideBtn);
+
+    render(
+      <Modal title="Outside Autofocus Test" onClose={vi.fn()}>
+        <button type="button" data-testid="dialog-first-btn">
+          Dialog First Button
+        </button>
+      </Modal>
+    );
+
+    const dialogFirstBtn = screen.getByTestId('dialog-first-btn');
+    expect(document.activeElement).toBe(dialogFirstBtn);
+    expect(document.activeElement).not.toBe(outsideBtn);
+
+    document.body.removeChild(outsideBtn);
+  });
 });

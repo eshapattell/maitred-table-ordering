@@ -333,6 +333,7 @@ export const TableManager = () => {
               variant="ghost"
               disabled={busy}
               onClick={() => setActiveModal(null)}
+              data-autofocus="true"
             >
               {MESSAGES.common.cancel}
             </Button>
@@ -363,6 +364,7 @@ export const TableManager = () => {
               variant="ghost"
               disabled={busy}
               onClick={() => setActiveModal(null)}
+              data-autofocus="true"
             >
               {MESSAGES.common.cancel}
             </Button>
