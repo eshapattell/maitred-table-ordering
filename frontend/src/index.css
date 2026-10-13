@@ -650,8 +650,14 @@ a:hover {
 
 .table-card-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+}
+
+.table-card-actions .btn {
+  justify-content: flex-start;
+  text-align: left;
 }
 
 .add-table-form {
@@ -689,6 +695,10 @@ a:hover {
 .qr-title {
   font-size: 1.5rem;
   margin: 0;
+}
+
+.qr-print .qr-title {
+  display: none;
 }
 
 .qr-image {
@@ -806,6 +816,7 @@ a:hover {
   }
 
   .qr-print .qr-title {
+    display: block !important;
     color: var(--color-print-text) !important;
   }
 

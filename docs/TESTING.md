@@ -350,6 +350,8 @@ Manual checks:
 - Print preview of a QR shows only the code
 - Print preview of the Menu page is not blank
 - Opening Add a dish puts the cursor in the first field
+- Add a dish: fixing a field removes its error message at once
+- Tables page: the three buttons in every card line up on the left; the QR dialog shows the table number once; the print preview still shows it
 - 375 px width has no sideways scrolling
 
 | Component / Feature | Expected Result | Test File | Status |
@@ -357,7 +359,7 @@ Manual checks:
 | Menu Service (`menuService.js`) | GET /menu, POST /menu, PATCH /menu/:itemId, POST confirm-allergens, PATCH availability; URI encodes IDs; propagates 409 and 500 status | `frontend/src/services/menuService.test.js` | Passed |
 | Table Service (`tableService.js`) | GET /tables (drops qrToken), POST /tables (drops qrToken), GET /tables/:id/qr, POST rotate-token (drops qrToken), DELETE /tables/:id; URI encodes IDs; propagates 409 and 500 status | `frontend/src/services/tableService.test.js` | Passed |
 | Accessible Modal (`Modal.jsx`) | createPortal into body, aria-modal, aria-labelledby heading, Escape/backdrop close, click inside isolated, busy blocks close/escape, focus trap (Tab/Shift+Tab wrap), initial focus on first focusable in modal-body (fallback to Close button), scroll lock & restore | `frontend/src/Components/Common/Modal.test.jsx` | Passed |
-| Menu Form (`MenuForm.jsx`) | 12 fields; blank validation prevents submit; focus to first invalid; allergen and flavour fieldsets link aria-describedby to error IDs; allergen none/list exclusivity; exact create payload; prefilled edit mode; unknown tags warning; busy disabled; cancel | `frontend/src/Components/Owner/MenuForm.test.jsx` | Passed |
+| Menu Form (`MenuForm.jsx`) | 12 fields; blank validation prevents submit; focus to first invalid; fixing a field clears its error at once; allergen and flavour fieldsets link aria-describedby to error IDs; allergen none/list exclusivity; exact create payload; prefilled edit mode; unknown tags warning; busy disabled; cancel | `frontend/src/Components/Owner/MenuForm.test.jsx` | Passed |
 | Allergen Tag Review (`AllergenTagReview.jsx`) | Displays stored tags; empty list safety warning; unreadable/unknown tags disable confirm; requires explicit tick; passes exact stored array; cancel & busy states | `frontend/src/Components/Owner/AllergenTagReview.test.jsx` | Passed |
 | Table Card (`TableCard.jsx`) | Heading Table N; three accessible buttons (Show, Replace, Delete); disabled when busy; dispatches handlers with table | `frontend/src/Components/Owner/TableCard.test.jsx` | Passed |
 | QR Display (`QRDisplay.jsx`) | Displays img only for valid PNG base64; http(s) guest link; download filename format; Print button calls window.print; updated qrCaption wording; zero hex secret leaks in visible text | `frontend/src/Components/Owner/QRDisplay.test.jsx` | Passed |

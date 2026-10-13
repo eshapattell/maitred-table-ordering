@@ -251,4 +251,102 @@ describe('MenuForm', () => {
     expect(errorEl).toBeInTheDocument();
     expect(errorEl).toHaveAttribute('role', 'alert');
   });
+
+  test('16. typing in name clears only name error while price error stays', () => {
+    render(<MenuForm mode="create" onSubmit={vi.fn()} onCancel={vi.fn()} />);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: MESSAGES.owner.menu.addDishSubmit })
+    );
+
+    const nameInput = screen.getByLabelText(MESSAGES.owner.menu.fields.name);
+    const priceInput = screen.getByLabelText(MESSAGES.owner.menu.fields.price);
+    expect(nameInput).toHaveAttribute('aria-invalid', 'true');
+    expect(priceInput).toHaveAttribute('aria-invalid', 'true');
+
+    fireEvent.change(nameInput, { target: { value: 'Saffron Risotto' } });
+    expect(nameInput).not.toHaveAttribute('aria-invalid');
+    expect(priceInput).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  test('17. choosing a course clears the course error', () => {
+    render(<MenuForm mode="create" onSubmit={vi.fn()} onCancel={vi.fn()} />);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: MESSAGES.owner.menu.addDishSubmit })
+    );
+
+    const courseSelect = screen.getByLabelText(MESSAGES.owner.menu.fields.course);
+    expect(courseSelect).toHaveAttribute('aria-invalid', 'true');
+
+    fireEvent.change(courseSelect, { target: { value: 'main' } });
+    expect(courseSelect).not.toHaveAttribute('aria-invalid');
+  });
+
+  test('18. choosing vegetarian clears the isVeg error', () => {
+    render(<MenuForm mode="create" onSubmit={vi.fn()} onCancel={vi.fn()} />);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: MESSAGES.owner.menu.addDishSubmit })
+    );
+
+    const vegRadio = screen.getByLabelText(MESSAGES.owner.menu.vegetarian);
+    expect(vegRadio).toHaveAttribute('aria-invalid', 'true');
+
+    fireEvent.click(vegRadio);
+    expect(vegRadio).not.toHaveAttribute('aria-invalid');
+  });
+
+  test('19. ticking an allergen clears the allergens error, and ticking contains none clears it', () => {
+    const { container } = render(
+      <MenuForm mode="create" onSubmit={vi.fn()} onCancel={vi.fn()} />
+    );
+
+    fireEvent.click(
+      screen.getByRole('button', { name: MESSAGES.owner.menu.addDishSubmit })
+    );
+
+    const allergenFieldset = container.querySelector('.allergens-fieldset');
+    expect(allergenFieldset).toHaveAttribute('aria-describedby');
+
+    const dairyCheckbox = screen.getByLabelText('Dairy');
+    fireEvent.click(dairyCheckbox);
+    expect(allergenFieldset).not.toHaveAttribute('aria-describedby');
+
+    // Untick dairy and trigger submit again to get allergen error back
+    fireEvent.click(dairyCheckbox);
+    fireEvent.click(
+      screen.getByRole('button', { name: MESSAGES.owner.menu.addDishSubmit })
+    );
+    expect(allergenFieldset).toHaveAttribute('aria-describedby');
+
+    // Ticking 'contains none' clears it
+    const noneCheckbox = screen.getByLabelText(MESSAGES.owner.menu.noneCheckbox);
+    fireEvent.click(noneCheckbox);
+    expect(allergenFieldset).not.toHaveAttribute('aria-describedby');
+  });
+
+  test('20. a second blank submit shows the errors again', () => {
+    render(<MenuForm mode="create" onSubmit={vi.fn()} onCancel={vi.fn()} />);
+
+    // First blank submit
+    fireEvent.click(
+      screen.getByRole('button', { name: MESSAGES.owner.menu.addDishSubmit })
+    );
+    const nameInput = screen.getByLabelText(MESSAGES.owner.menu.fields.name);
+    expect(nameInput).toHaveAttribute('aria-invalid', 'true');
+
+    // Fix name
+    fireEvent.change(nameInput, { target: { value: 'Risotto' } });
+    expect(nameInput).not.toHaveAttribute('aria-invalid');
+
+    // Clear name again
+    fireEvent.change(nameInput, { target: { value: '' } });
+
+    // Second submit shows errors again
+    fireEvent.click(
+      screen.getByRole('button', { name: MESSAGES.owner.menu.addDishSubmit })
+    );
+    expect(nameInput).toHaveAttribute('aria-invalid', 'true');
+  });
 });

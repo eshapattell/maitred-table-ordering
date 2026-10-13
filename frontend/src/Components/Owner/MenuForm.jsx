@@ -99,6 +99,19 @@ export const MenuForm = ({
     }
   };
 
+  const clearFieldError = (field) => {
+    setErrors((prev) => {
+      if (!prev[field]) return prev;
+      const { [field]: _removed, ...rest } = prev;
+      return rest;
+    });
+  };
+
+  const handleFieldChange = (field, value) => {
+    setValues((prev) => ({ ...prev, [field]: value }));
+    clearFieldError(field);
+  };
+
   const handleAllergenToggle = (tag, checked) => {
     setValues((prev) => {
       const nextAllergens = checked
@@ -110,6 +123,7 @@ export const MenuForm = ({
         noAllergens: false,
       };
     });
+    clearFieldError('allergens');
   };
 
   const handleNoneToggle = (checked) => {
@@ -118,6 +132,7 @@ export const MenuForm = ({
       noAllergens: checked,
       allergens: checked ? [] : prev.allergens,
     }));
+    clearFieldError('allergens');
   };
 
   const handleFlavourToggle = (tag, checked) => {
@@ -130,6 +145,7 @@ export const MenuForm = ({
         flavourTags: nextFlavours,
       };
     });
+    clearFieldError('flavourTags');
   };
 
   return (
@@ -151,7 +167,7 @@ export const MenuForm = ({
           value={values.name}
           aria-invalid={errors.name ? 'true' : undefined}
           aria-describedby={errors.name ? `${nameId}-error` : undefined}
-          onChange={(e) => setValues({ ...values, name: e.target.value })}
+          onChange={(e) => handleFieldChange('name', e.target.value)}
         />
         {errors.name && (
           <div id={`${nameId}-error`} role="alert" className="field-error">
@@ -172,7 +188,7 @@ export const MenuForm = ({
           value={values.description}
           aria-invalid={errors.description ? 'true' : undefined}
           aria-describedby={errors.description ? `${descId}-error` : undefined}
-          onChange={(e) => setValues({ ...values, description: e.target.value })}
+          onChange={(e) => handleFieldChange('description', e.target.value)}
         />
         {errors.description && (
           <div id={`${descId}-error`} role="alert" className="field-error">
@@ -195,7 +211,7 @@ export const MenuForm = ({
           value={values.price}
           aria-invalid={errors.price ? 'true' : undefined}
           aria-describedby={errors.price ? `${priceId}-error` : undefined}
-          onChange={(e) => setValues({ ...values, price: e.target.value })}
+          onChange={(e) => handleFieldChange('price', e.target.value)}
         />
         {errors.price && (
           <div id={`${priceId}-error`} role="alert" className="field-error">
@@ -218,7 +234,7 @@ export const MenuForm = ({
           value={values.category}
           aria-invalid={errors.category ? 'true' : undefined}
           aria-describedby={errors.category ? `${categoryId}-error` : undefined}
-          onChange={(e) => setValues({ ...values, category: e.target.value })}
+          onChange={(e) => handleFieldChange('category', e.target.value)}
         />
         <datalist id={datalistId}>
           {categories.map((cat) => (
@@ -244,7 +260,7 @@ export const MenuForm = ({
           value={values.course}
           aria-invalid={errors.course ? 'true' : undefined}
           aria-describedby={errors.course ? `${courseId}-error` : undefined}
-          onChange={(e) => setValues({ ...values, course: e.target.value })}
+          onChange={(e) => handleFieldChange('course', e.target.value)}
         >
           <option value="">{MESSAGES.owner.menu.fields.coursePlaceholder}</option>
           {COURSES.map((c) => (
@@ -273,7 +289,7 @@ export const MenuForm = ({
           value={values.cuisine}
           aria-invalid={errors.cuisine ? 'true' : undefined}
           aria-describedby={errors.cuisine ? `${cuisineId}-error` : undefined}
-          onChange={(e) => setValues({ ...values, cuisine: e.target.value })}
+          onChange={(e) => handleFieldChange('cuisine', e.target.value)}
         />
         {errors.cuisine && (
           <div id={`${cuisineId}-error`} role="alert" className="field-error">
@@ -294,7 +310,7 @@ export const MenuForm = ({
           value={values.portionSize}
           aria-invalid={errors.portionSize ? 'true' : undefined}
           aria-describedby={errors.portionSize ? `${portionId}-error` : undefined}
-          onChange={(e) => setValues({ ...values, portionSize: e.target.value })}
+          onChange={(e) => handleFieldChange('portionSize', e.target.value)}
         >
           {PORTION_SIZES.map((ps) => (
             <option key={ps} value={ps}>
@@ -323,7 +339,7 @@ export const MenuForm = ({
           value={values.prepMinutes}
           aria-invalid={errors.prepMinutes ? 'true' : undefined}
           aria-describedby={errors.prepMinutes ? `${prepId}-error` : undefined}
-          onChange={(e) => setValues({ ...values, prepMinutes: e.target.value })}
+          onChange={(e) => handleFieldChange('prepMinutes', e.target.value)}
         />
         {errors.prepMinutes && (
           <div id={`${prepId}-error`} role="alert" className="field-error">
@@ -344,7 +360,7 @@ export const MenuForm = ({
           value={values.spiceLevel}
           aria-invalid={errors.spiceLevel ? 'true' : undefined}
           aria-describedby={errors.spiceLevel ? `${spiceId}-error` : undefined}
-          onChange={(e) => setValues({ ...values, spiceLevel: e.target.value })}
+          onChange={(e) => handleFieldChange('spiceLevel', e.target.value)}
         >
           {SPICE_LEVELS.map((lvl) => (
             <option key={lvl} value={String(lvl)}>
@@ -372,7 +388,7 @@ export const MenuForm = ({
               checked={values.isVeg === true}
               aria-invalid={errors.isVeg ? 'true' : undefined}
               aria-describedby={errors.isVeg ? `${vegId}-error` : undefined}
-              onChange={() => setValues({ ...values, isVeg: true })}
+              onChange={() => handleFieldChange('isVeg', true)}
             />
             {MESSAGES.owner.menu.vegetarian}
           </label>
@@ -384,7 +400,7 @@ export const MenuForm = ({
               checked={values.isVeg === false}
               aria-invalid={errors.isVeg ? 'true' : undefined}
               aria-describedby={errors.isVeg ? `${vegId}-error` : undefined}
-              onChange={() => setValues({ ...values, isVeg: false })}
+              onChange={() => handleFieldChange('isVeg', false)}
             />
             {MESSAGES.owner.menu.nonVegetarian}
           </label>
