@@ -23,6 +23,7 @@ import {
   checkItemSafety,
 } from '../utils/allergyFilter.js';
 import { publicMenuItem } from './menuController.js';
+import { realtime } from '../utils/realtime.js';
 
 /**
  * Closes an active table session atomically and erases all guest phone numbers.
@@ -35,9 +36,10 @@ import { publicMenuItem } from './menuController.js';
  * @param {string|mongoose.Types.ObjectId} sessionId
  * @param {string} reason - One of 'reset', 'rejected', 'timeout', 'table-removed'
  * @param {Date} [now=new Date()]
+ * @param {boolean} [notify=true]
  * @returns {Promise<boolean>} True if a session was closed, false otherwise
  */
-export const closeSession = async (sessionId, reason, now = new Date()) => {
+export const closeSession = async (sessionId, reason, now = new Date(), notify = true) => {
   const result = await TableSession.updateOne(
     { _id: sessionId, status: 'open' },
     {
@@ -49,7 +51,13 @@ export const closeSession = async (sessionId, reason, now = new Date()) => {
       },
     }
   );
-  return result.modifiedCount > 0;
+  if (result.modifiedCount > 0) {
+    if (notify) {
+      realtime.sessionChanged(sessionId);
+    }
+    return true;
+  }
+  return false;
 };
 
 /**
@@ -209,6 +217,7 @@ export const joinSession = async (req, res, next) => {
       sessionId: String(joined.sessionId),
       participantId: String(joined.participant.id),
     });
+    realtime.sessionChanged(joined.sessionId);
     return res.status(201).json({
       token,
       participant: selfParticipant(joined.participant),
@@ -310,6 +319,7 @@ export const declareAllergies = async (req, res, next) => {
       allergiesDeclared: true,
     };
 
+    realtime.sessionChanged(req.guest.sessionId);
     res.status(200).json({
       me: selfParticipant(updatedParticipant),
     });
@@ -387,6 +397,7 @@ export const approveGuest = async (req, res, next) => {
       new Date()
     );
 
+    realtime.sessionChanged(req.guest.sessionId);
     res.status(200).json({
       session: {
         id: req.guest.sessionId,
@@ -433,6 +444,7 @@ export const rejectGuest = async (req, res, next) => {
       new Date()
     );
 
+    realtime.sessionChanged(req.guest.sessionId);
     res.status(200).json({
       session: {
         id: req.guest.sessionId,
@@ -556,11 +568,12 @@ export const closeStaffSession = async (req, res, next) => {
       return res.status(404).json({ message: 'Session not found', code: 'NOT_FOUND' });
     }
 
-    const closed = await closeSession(session._id, reason);
+    const closed = await closeSession(session._id, reason, new Date(), false);
     if (!closed) {
       return res.status(404).json({ message: 'Session not found', code: 'NOT_FOUND' });
     }
 
+    realtime.sessionChanged(session._id);
     if (reason === 'reset') {
       return res.status(200).json({ message: 'Table reset' });
     }
@@ -611,6 +624,7 @@ export const approveStaffParticipant = async (req, res, next) => {
     const table = await Table.findById(updated.tableId).select('number').lean();
     const tableNumber = table ? table.number : null;
 
+    realtime.sessionChanged(session._id);
     res.status(200).json(formatStaffSession(updated, tableNumber));
   } catch (err) {
     next(err);
@@ -695,9 +709,10 @@ export const removeStaffParticipant = async (req, res, next) => {
     const approved = reread ? (reread.participants || []).filter((p) => p && p.status === 'approved') : [];
     const hostMissing = wasHost && !approved.some((p) => p.role === 'host' && p.id === reread.hostId);
     if (approved.length === 0 || hostMissing) {
-      await closeSession(session._id, 'reset');
+      await closeSession(session._id, 'reset', new Date(), false);
     }
 
+    realtime.sessionChanged(session._id);
     res.status(200).json({ message: 'Removed' });
   } catch (err) {
     next(err);

@@ -505,5 +505,34 @@ describe('Mongoose Models Schema Validation', () => {
         expect(validReasonSession.validateSync()).toBeUndefined();
       }
     });
+
+    test('TableSession cartVersion defaults to 0, -1 and 1.5 fail validateSync, cart still defaults to []', () => {
+      const session = new TableSession({
+        tableId: dummyObjectId(),
+        restaurantId: dummyObjectId(),
+      });
+      expect(session.cartVersion).toBe(0);
+      expect(session.cart).toEqual([]);
+      expect(session.validateSync()).toBeUndefined();
+
+      const negativeSession = new TableSession({
+        tableId: dummyObjectId(),
+        restaurantId: dummyObjectId(),
+        cartVersion: -1,
+      });
+      const negErr = negativeSession.validateSync();
+      expect(negErr).toBeDefined();
+      expect(negErr.errors.cartVersion).toBeDefined();
+
+      const decimalSession = new TableSession({
+        tableId: dummyObjectId(),
+        restaurantId: dummyObjectId(),
+        cartVersion: 1.5,
+      });
+      const decErr = decimalSession.validateSync();
+      expect(decErr).toBeDefined();
+      expect(decErr.errors.cartVersion).toBeDefined();
+    });
   });
 });
+

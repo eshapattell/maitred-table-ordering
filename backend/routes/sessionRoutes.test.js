@@ -8,6 +8,7 @@ import Table from '../models/Table.js';
 import TableSession from '../models/TableSession.js';
 import MenuItem from '../models/MenuItem.js';
 import { closeSession } from '../controllers/sessionController.js';
+import { realtime } from '../utils/realtime.js';
 import { connectTestDb, clearTestDb, disconnectTestDb } from '../config/testDb.js';
 import { createFixtures } from '../config/testFixtures.js';
 
@@ -1361,6 +1362,118 @@ describe('Table Session Routes (/api/sessions)', () => {
           { $set: { status: 'closed', 'participants.$[].phone': null } }
         );
       }
+    });
+  });
+
+  describe('realtime.sessionChanged notification plumbing on guest routes', () => {
+    let notifySpy;
+
+    beforeEach(() => {
+      notifySpy = jest.spyOn(realtime, 'sessionChanged');
+    });
+
+    afterEach(() => {
+      if (notifySpy) {
+        notifySpy.mockRestore();
+      }
+    });
+
+    test('joinSession success calls realtime.sessionChanged exactly once; error path calls it zero times', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+
+      // Error path: invalid phone
+      notifySpy.mockClear();
+      const errRes = await join(table, '123', 'Aarav');
+      expect(errRes.status).toBe(400);
+      expect(notifySpy).not.toHaveBeenCalled();
+
+      // Success path
+      notifySpy.mockClear();
+      const res = await join(table, '9824081111', 'Aarav');
+      expect(res.status).toBe(201);
+      const sessionId = res.body.session.id;
+      expect(notifySpy).toHaveBeenCalledTimes(1);
+      expect(String(notifySpy.mock.calls[0][0])).toBe(String(sessionId));
+    });
+
+    test('declareAllergies success calls realtime.sessionChanged exactly once; error path calls it zero times', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const hostRes = await join(table, '9824082222', 'Host');
+      const token = hostRes.body.token;
+      const sessionId = hostRes.body.session.id;
+
+      // Error path: invalid allergen
+      notifySpy.mockClear();
+      const errRes = await request(app)
+        .post('/api/sessions/allergies')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ allergies: ['kryptonite'] });
+      expect(errRes.status).toBe(400);
+      expect(notifySpy).not.toHaveBeenCalled();
+
+      // Success path
+      notifySpy.mockClear();
+      const successRes = await request(app)
+        .post('/api/sessions/allergies')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ allergies: ['dairy'] });
+      expect(successRes.status).toBe(200);
+      expect(notifySpy).toHaveBeenCalledTimes(1);
+      expect(String(notifySpy.mock.calls[0][0])).toBe(String(sessionId));
+    });
+
+    test('approveGuest success calls realtime.sessionChanged exactly once; error path calls it zero times', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const hostRes = await join(table, '9824083333', 'Host');
+      const hostToken = hostRes.body.token;
+      const sessionId = hostRes.body.session.id;
+
+      const guestRes = await join(table, '9824084444', 'Guest');
+      const guestId = guestRes.body.participant.id;
+
+      // Error path: unknown participant id
+      notifySpy.mockClear();
+      const errRes = await request(app)
+        .post(`/api/sessions/participants/non-existent-id/approve`)
+        .set('Authorization', `Bearer ${hostToken}`);
+      expect(errRes.status).toBe(404);
+      expect(notifySpy).not.toHaveBeenCalled();
+
+      // Success path
+      notifySpy.mockClear();
+      const successRes = await request(app)
+        .post(`/api/sessions/participants/${guestId}/approve`)
+        .set('Authorization', `Bearer ${hostToken}`);
+      expect(successRes.status).toBe(200);
+      expect(notifySpy).toHaveBeenCalledTimes(1);
+      expect(String(notifySpy.mock.calls[0][0])).toBe(String(sessionId));
+    });
+
+    test('rejectGuest success calls realtime.sessionChanged exactly once; error path calls it zero times', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const hostRes = await join(table, '9824085555', 'Host');
+      const hostToken = hostRes.body.token;
+      const sessionId = hostRes.body.session.id;
+
+      const guestRes = await join(table, '9824086666', 'GuestReject');
+      const guestId = guestRes.body.participant.id;
+
+      // Error path: unknown participant id
+      notifySpy.mockClear();
+      const errRes = await request(app)
+        .post(`/api/sessions/participants/non-existent-id/reject`)
+        .set('Authorization', `Bearer ${hostToken}`);
+      expect(errRes.status).toBe(404);
+      expect(notifySpy).not.toHaveBeenCalled();
+
+      // Success path
+      notifySpy.mockClear();
+      const successRes = await request(app)
+        .post(`/api/sessions/participants/${guestId}/reject`)
+        .set('Authorization', `Bearer ${hostToken}`);
+      expect(successRes.status).toBe(200);
+      expect(notifySpy).toHaveBeenCalledTimes(1);
+      expect(String(notifySpy.mock.calls[0][0])).toBe(String(sessionId));
     });
   });
 });

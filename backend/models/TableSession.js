@@ -163,6 +163,14 @@ const tableSessionSchema = new mongoose.Schema(
       type: [cartItemSchema],
       default: [],
     },
+    // Counts every change to the cart
+    cartVersion: {
+      type: Number,
+      default: 0,
+      min: 0,
+      validate: Number.isInteger,
+      comment: 'it counts every change to the cart',
+    },
     // Server-assigned string participant ID of the host guest
     hostId: {
       type: String,

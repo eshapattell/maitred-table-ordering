@@ -13,6 +13,7 @@ import {
   closeIdleSessions,
   startIdleSweeper,
 } from '../controllers/sessionController.js';
+import { realtime } from '../utils/realtime.js';
 import { generateGuestToken } from '../utils/generateToken.js';
 import { connectTestDb, clearTestDb, disconnectTestDb } from '../config/testDb.js';
 import { createFixtures } from '../config/testFixtures.js';
@@ -1471,6 +1472,120 @@ describe('Staff Table Session Safeguards (/api/sessions/staff)', () => {
 
       // startServer itself only runs when NODE_ENV is not 'test'
       expect(content).toContain("process.env.NODE_ENV !== 'test'");
+    });
+  });
+
+  describe('realtime.sessionChanged notification plumbing on staff routes and closeSession', () => {
+    let notifySpy;
+
+    beforeEach(() => {
+      notifySpy = jest.spyOn(realtime, 'sessionChanged');
+    });
+
+    afterEach(() => {
+      if (notifySpy) {
+        notifySpy.mockRestore();
+      }
+    });
+
+    test('closeStaffSession success calls realtime.sessionChanged exactly once; error path calls it zero times', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const joinRes = await join(table, '9824199991', 'UserStaffClose');
+      const sessionId = joinRes.body.session.id;
+
+      // Error path: invalid session id
+      notifySpy.mockClear();
+      const errRes = await request(app)
+        .post(`/api/sessions/staff/invalid-id/close`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`)
+        .send({ reason: 'reset' });
+      expect(errRes.status).toBe(404);
+      expect(notifySpy).not.toHaveBeenCalled();
+
+      // Success path
+      notifySpy.mockClear();
+      const successRes = await request(app)
+        .post(`/api/sessions/staff/${sessionId}/close`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`)
+        .send({ reason: 'reset' });
+      expect(successRes.status).toBe(200);
+      expect(notifySpy).toHaveBeenCalledTimes(1);
+      expect(String(notifySpy.mock.calls[0][0])).toBe(String(sessionId));
+    });
+
+    test('approveStaffParticipant success calls realtime.sessionChanged exactly once; error path calls it zero times', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const hostRes = await join(table, '9824199992', 'HostApprove');
+      const sessionId = hostRes.body.session.id;
+
+      const guestRes = await join(table, '9824199993', 'PendingGuest');
+      const guestId = guestRes.body.participant.id;
+
+      // Error path: non-existent participant id
+      notifySpy.mockClear();
+      const errRes = await request(app)
+        .post(`/api/sessions/staff/${sessionId}/participants/non-existent-id/approve`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+      expect(errRes.status).toBe(404);
+      expect(notifySpy).not.toHaveBeenCalled();
+
+      // Success path
+      notifySpy.mockClear();
+      const successRes = await request(app)
+        .post(`/api/sessions/staff/${sessionId}/participants/${guestId}/approve`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+      expect(successRes.status).toBe(200);
+      expect(notifySpy).toHaveBeenCalledTimes(1);
+      expect(String(notifySpy.mock.calls[0][0])).toBe(String(sessionId));
+    });
+
+    test('removeStaffParticipant success calls realtime.sessionChanged exactly once; error path calls it zero times', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const hostRes = await join(table, '9824199994', 'HostRemove');
+      const sessionId = hostRes.body.session.id;
+
+      const guestRes = await join(table, '9824199995', 'SecondGuest');
+      const guestId = guestRes.body.participant.id;
+      // Approve guest first so there are 2 approved guests
+      await request(app)
+        .post(`/api/sessions/staff/${sessionId}/participants/${guestId}/approve`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+
+      // Error path: non-existent participant id
+      notifySpy.mockClear();
+      const errRes = await request(app)
+        .post(`/api/sessions/staff/${sessionId}/participants/non-existent-id/remove`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+      expect(errRes.status).toBe(404);
+      expect(notifySpy).not.toHaveBeenCalled();
+
+      // Success path
+      notifySpy.mockClear();
+      const successRes = await request(app)
+        .post(`/api/sessions/staff/${sessionId}/participants/${guestId}/remove`)
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+      expect(successRes.status).toBe(200);
+      expect(notifySpy).toHaveBeenCalledTimes(1);
+      expect(String(notifySpy.mock.calls[0][0])).toBe(String(sessionId));
+    });
+
+    test('closeSession helper calls realtime.sessionChanged exactly once when closed, zero times when closed nothing', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const hostRes = await join(table, '9824199996', 'DirectCloseTest');
+      const sessionId = hostRes.body.session.id;
+
+      // 1. First call: actually closes open session -> exactly once
+      notifySpy.mockClear();
+      const closed = await closeSession(sessionId, 'reset');
+      expect(closed).toBe(true);
+      expect(notifySpy).toHaveBeenCalledTimes(1);
+      expect(String(notifySpy.mock.calls[0][0])).toBe(String(sessionId));
+
+      // 2. Second call: already closed, modifiedCount is 0 -> zero times
+      notifySpy.mockClear();
+      const closedAgain = await closeSession(sessionId, 'reset');
+      expect(closedAgain).toBe(false);
+      expect(notifySpy).not.toHaveBeenCalled();
     });
   });
 });
