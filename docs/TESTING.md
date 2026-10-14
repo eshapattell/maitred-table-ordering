@@ -416,6 +416,32 @@ Manual checks:
 5. **Session Termination**:
    - When table session is closed by staff or host, guest polling receives 401 SESSION_CLOSED: token is cleared from `sessionStorage`, and calm ended message is displayed.
 
+## Shared Table Cart & Live Connection (Task 10b)
+
+### Automated Test Coverage
+
+| Feature / Scenario | Expected Result | Test File | Status |
+| :--- | :--- | :--- | :--- |
+| TableSession `cartVersion` Model Validation | Integer >= 0, default 0, increments on cart changes, rejects negatives and floats | `backend/models/models.test.js` | Passed |
+| Realtime Notification Service (`realtime.js`) | Unit tests for init, sessionChanged, cartChanged with version payload; no-op without io/room | `backend/utils/realtime.test.js` | Passed |
+| Session Endpoints Live Notifications | 7 endpoints and closeSession trigger `realtime.sessionChanged` once on success, zero on failure | `backend/routes/sessionRoutes.test.js`, `backend/routes/sessionStaffRoutes.test.js` | Passed |
+| Cart Auth & Input Guards | Rejects missing/staff/garbage tokens (401), pending guests (403), undeclared allergies (403), closed sessions (401), removed guests (401), invalid IDs/quantities/deltas (400) | `backend/routes/cartRoutes.test.js` | Passed |
+| Adding Items (`POST /api/sessions/cart/items`) | Creates line or increments existing line for same guest; rejects unavailable/cross-tenant/unknown dishes (404); enforces limits (409 QTY_LIMIT, 409 CART_FULL) | `backend/routes/cartRoutes.test.js` | Passed |
+| Allergy Safety Checks on Add | Unconfirmed dishes or allergen clashes fail with 409 NOT_SAFE; safe dishes or non-allergic diners succeed; failed add leaves cart empty & cartVersion at 0 | `backend/routes/cartRoutes.test.js` | Passed |
+| Personal Cart View (`GET /api/sessions/cart`) | Live dish prices/names; personal safeForYou flags per diner; hides phone/allergies/tokens; masks removed guest lines; hides surprise dishes; cartVersion accuracy | `backend/routes/cartRoutes.test.js` | Passed |
+| Decreasing Line Quantity (`PATCH /api/sessions/cart/items/:cartItemId`) | Decreases qty by 1; prevents decrease below 1 with 409 MIN_QTY; host can edit any guest line; normal guest restricted to own lines; surprise dishes return 404 | `backend/routes/cartRoutes.test.js` | Passed |
+| Removing Line (`DELETE /api/sessions/cart/items/:cartItemId`) | Removes line; idempotent 404 on repeat; host can remove any line; normal guest restricted to own lines; surprise dishes return 404 | `backend/routes/cartRoutes.test.js` | Passed |
+| Concurrency & Operation Guards (Atomic Updates) | 12 concurrent adds by one guest -> 1 line qty 12; 2 guests adding same dish -> 2 distinct lines; 39-line race -> exactly 1 success and 5 CART_FULL (final 40); qty 18 + 5 adds -> exactly 20 with three QTY_LIMIT; qty 3 + 6 decreases -> exactly 1 with four MIN_QTY; allergy change race -> 409 NOT_SAFE; session closed race -> 401 SESSION_CLOSED; participant removed race -> 401 PARTICIPANT_REMOVED; transient miss retries -> 503 TRY_AGAIN | `backend/routes/cartRoutes.test.js` | Passed |
+| Realtime Cart Notifications | Successful add/patch/delete emits `realtime.cartChanged` with new version; failed operations emit zero times | `backend/routes/cartRoutes.test.js` | Passed |
+| Live Connection Authentication (`registerGuestSocket`) | Connection requires valid guest token with sid and sub claims; rejects missing/invalid/expired/bad sid/closed/expired pending/removed (all "unauthorised"); logs misconfiguration on invalid JWT_SECRET without crashing | `backend/sockets/guestSocket.test.js` | Passed |
+| Room Assignment & Event Delivery | Authenticated socket joins `session:<sessionId>`; cart mutation emits `cart:changed` `{ version }` (no other data); session changes emit `session:changed`; verifies room isolation (table B hears nothing from table A) | `backend/sockets/guestSocket.test.js` | Passed |
+
+### Live Connection Architecture Notes
+- **Transports**: Restricted to pure `websocket` transport (`transports: ['websocket']`) to eliminate polling fallback overhead and reduce server memory load.
+- **Payload & Data Privacy**: The live connection carries **zero** application data. `cart:changed` delivers `{ version }` only; `session:changed` delivers an empty event name. All real cart and session data is pulled through standard authenticated REST routes (`GET /api/sessions/cart` and `GET /api/sessions/me`), ensuring all authorization and personal allergy safety flags are evaluated centrally.
+- **Room Naming**: Formatted as `session:<24-hex-sessionId>` (lower-case) via `roomFor(sid)`. Invalid IDs produce `null`, preventing socket connection and emission leaks.
+- **Socket Security**: `maxHttpBufferSize: 1e4` (10,000 bytes) drops oversized frames. The server attaches no client event listeners; incoming client emissions are completely ignored. Disconnection leaves rooms automatically.
+
 ## Known gaps
 
 | Gap | Closed by | Proven by | Status |
@@ -426,8 +452,8 @@ Manual checks:
 | Malformed JSON body: confirm it answers 400, not 500 | Task 7 | server.test.js and the errorMiddleware tests | closed (Task 7) |
 | Table QR token is a static secret, so a photo of the QR lets anyone join | rotate-token route done in Task 7, the real fix is the session lifecycle (see the new row below) | tableRoutes rotate-token tests | half closed |
 | A previous party, or anyone holding a photo of the QR, can reach the next party's table. Needs a session lifecycle: staff opens the table or approves guests, closing the table invalidates every guest token and socket connection, every guest request re-checks that its session is open and its table still exists, and an inactivity timeout closes forgotten sessions | phone-number join, one session per table and per phone, host approval, staff reject, reset and removal, and the idle sweeper | `sessionRoutes.test.js`, `sessionMiddleware.test.js`, and `sessionStaffRoutes.test.js` | closed (Task 9b) |
-| $inc skips the min 1 rule on cart qty | cart task | pending | open |
-| Guest allergies must be declared before any cart action (allergiesDeclared) | Enforced for guest menu in Task 9a (`requireAllergiesDeclared`); cart task must apply `requireAllergiesDeclared` to cart mutations | `sessionMiddleware.test.js` and `sessionRoutes.test.js` | half closed |
+| $inc skips the min 1 rule on cart qty | Task 10b: atomic PATCH filter enforces `qty: { $gt: 1 }` in the same `updateOne` operation as `$inc: -1`, preventing race conditions below 1 | Proven by test 7.5 in `cartRoutes.test.js` (6 simultaneous decreases race down to 1 with four 409 MIN_QTY, never 0; step 9d mutation proof caught red) | closed (Task 10b) |
+| Guest allergies must be declared before any cart action (allergiesDeclared) | Task 10b: routes guarded by `requireAllergiesDeclared` middleware, and `addItem` atomic query conditionally pins guest's exact declared allergies in `baseGuard` | Proven by tests 1.5, 3.1-3.6, and 7.6 in `cartRoutes.test.js` (allergies race caught by baseGuard updateOne matchedCount 0; step 9a mutation proof caught red) | closed (Task 10b) |
 | Unique open-session index is declared but not proven against the real database | Task 7 | tableSessionIndex.test.js | closed (Task 7) |
 | Frontend allergen list must match KNOWN_ALLERGENS exactly | Task 8a (frontend foundation) | allergens.test.js | closed (Task 8a) |
 | The auth token lives in sessionStorage, readable by any script that runs on the page | deployment and final review: add a Content-Security-Policy, keep dependencies minimal, never render HTML from data | pending | open |
@@ -442,14 +468,15 @@ Manual checks:
 | Someone holding a QR photo can learn whether a given phone number is currently seated at this restaurant, because the 409 answers reveal it | rate limiting (hardening part 2) and SMS verification (future scope); state it in the report | pending | open |
 | Phone uniqueness is enforced across the whole database, not per restaurant; fine for one restaurant | scope it per restaurant when multi-restaurant support is built; state it in the report | pending | open |
 | Staff reset does not check for an unpaid bill (orders and bills are built in later tasks) | the bill task: the staff screen warns when unpaid items exist before a reset | open | open |
-| Pending approvals and the staff session list are fetched by polling, not pushed live | the Socket.io cart task adds live updates | open | open |
+| Pending approvals and the staff session list are fetched by polling, not pushed live | Task 10b: Socket.io `realtime.sessionChanged` emits `session:changed` to table room on approvals, joins, and resets | `guestSocket.test.js` (test 13) | closed (Task 10b) |
 | The idle limit of 4 hours is a safety valve chosen by us, not by the mentor; a table with no activity for 4 hours can be claimed again | state it in the report | open | open |
 | Allergen confirmation is a human check: the screen requires an explicit tick but cannot verify the recipe | the report states the limitation | pending | open |
 | Staff session controls (approve, reject, reset, remove) exist in the API but have no screen yet | kitchen screens task | pending | open |
 | QR codes encode CLIENT_URL, which must be the public address before any code is printed | final review (deployment) | pending | open |
 | Guest session reconnection UX: token persistence is in sessionStorage only, so closing the browser tab loses the session and requires re-scanning the QR code | Future enhancement: session recovery token or encrypted cookie | pending | open |
-| Real-time updates via WebSockets / Server-Sent Events: guest polling is currently interval-based (5s), so approvals and menu updates have up to a 5-second latency | Future task: live WebSocket connection with Socket.io on /table | pending | open |
+| Real-time updates via WebSockets / Server-Sent Events: guest polling is currently interval-based (5s), so approvals and menu updates have up to a 5-second latency | Closed in Task 10b: real-time Socket.io live connection delivers instant `session:changed` and `cart:changed` notifications | `guestSocket.test.js` and `realtime.test.js` | closed (Task 10b) |
 | Test fixtures must use the exact shapes the server sends (the dish keys are listed in the 10a prompt); invented field names let tests pass while the real screen is wrong | closed by the one fixture helper and the rules test | GuestMenuList.test.jsx and sourceRules.test.js | open for later screens |
+
 
 
 

@@ -16,6 +16,8 @@ import sessionRoutes from './routes/sessionRoutes.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 import { assertJwtSecret } from './utils/generateToken.js';
 import { startIdleSweeper } from './controllers/sessionController.js';
+import { realtime } from './utils/realtime.js';
+import { registerGuestSocket } from './sockets/guestSocket.js';
 
 // Load environment variables from .env
 dotenv.config();
@@ -29,13 +31,17 @@ const server = http.createServer(app);
 // Client URL configuration for CORS
 const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
 
-// Attach Socket.io to HTTP server with CORS restricted to CLIENT_URL (no handlers yet)
+// Attach Socket.io to HTTP server with CORS restricted to CLIENT_URL
 const io = new SocketIOServer(server, {
+  maxHttpBufferSize: 1e4,
   cors: {
     origin: clientUrl,
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
   },
 });
+
+realtime.init(io);
+registerGuestSocket(io);
 
 // Security and request parsing middleware
 app.use(helmet());
