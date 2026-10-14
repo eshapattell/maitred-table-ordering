@@ -321,4 +321,179 @@ describe('useGuestTable hook', () => {
 
     expect(guestService.fetchMyTable).toHaveBeenCalledTimes(2);
   });
+
+  test('12. changing pollMs from 5000 to 30000 makes the next poll come at 30000 and not at 5000', async () => {
+    guestService.fetchMyTable.mockResolvedValue({
+      session: { id: 's1', status: 'open' },
+      me: { id: 'p1', status: 'approved' },
+    });
+
+    const { rerender } = renderHook(({ pollMs }) => useGuestTable({ pollMs }), {
+      initialProps: { pollMs: 5000 },
+    });
+
+    // Change pollMs to 30000 while first request is running
+    rerender({ pollMs: 30000 });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(guestService.fetchMyTable).toHaveBeenCalledTimes(1);
+
+    // At 5000ms: should NOT have polled yet
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(guestService.fetchMyTable).toHaveBeenCalledTimes(1);
+
+    // At 29999ms: still should not have polled
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(24999);
+    });
+    expect(guestService.fetchMyTable).toHaveBeenCalledTimes(1);
+
+    // At 30000ms: poll occurs
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(guestService.fetchMyTable).toHaveBeenCalledTimes(2);
+  });
+
+  test('13. focus and online each cause a request when visible and active', async () => {
+    guestService.fetchMyTable.mockResolvedValue({
+      session: { id: 's1', status: 'open' },
+      me: { id: 'p1', status: 'approved' },
+    });
+
+    renderHook(() => useGuestTable());
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(guestService.fetchMyTable).toHaveBeenCalledTimes(1);
+
+    // focus triggers a request
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+    });
+    expect(guestService.fetchMyTable).toHaveBeenCalledTimes(2);
+
+    // online triggers a request
+    await act(async () => {
+      window.dispatchEvent(new Event('online'));
+    });
+    expect(guestService.fetchMyTable).toHaveBeenCalledTimes(3);
+  });
+
+  test('14. focus and online are ignored when session is ended', async () => {
+    guestService.fetchMyTable.mockResolvedValue({
+      session: { id: 's1', status: 'open' },
+      me: { id: 'p1', status: 'approved' },
+    });
+
+    renderHook(() => useGuestTable());
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(guestService.fetchMyTable).toHaveBeenCalledTimes(1);
+
+    // End session
+    act(() => {
+      window.dispatchEvent(new CustomEvent(EVENTS.GUEST_ENDED, { detail: { code: 'SESSION_CLOSED' } }));
+    });
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+      window.dispatchEvent(new Event('online'));
+    });
+
+    expect(guestService.fetchMyTable).toHaveBeenCalledTimes(1);
+  });
+
+  test('15. focus and online are ignored when noToken', async () => {
+    guestService.readGuestToken.mockReturnValue('');
+
+    renderHook(() => useGuestTable());
+
+    expect(guestService.fetchMyTable).not.toHaveBeenCalled();
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+      window.dispatchEvent(new Event('online'));
+    });
+
+    expect(guestService.fetchMyTable).not.toHaveBeenCalled();
+  });
+
+  test('16. focus and online are ignored while page is hidden', async () => {
+    guestService.fetchMyTable.mockResolvedValue({
+      session: { id: 's1', status: 'open' },
+      me: { id: 'p1', status: 'approved' },
+    });
+
+    renderHook(() => useGuestTable());
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(guestService.fetchMyTable).toHaveBeenCalledTimes(1);
+
+    // Hide document
+    Object.defineProperty(document, 'hidden', {
+      configurable: true,
+      get: () => true,
+    });
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+      window.dispatchEvent(new Event('online'));
+    });
+
+    expect(guestService.fetchMyTable).toHaveBeenCalledTimes(1);
+  });
+
+  test('17. focus and online are ignored while a request is in flight', async () => {
+    let resolveInFlight;
+    const pendingPromise = new Promise((resolve) => {
+      resolveInFlight = resolve;
+    });
+
+    // Initial fetch hangs in-flight
+    guestService.fetchMyTable.mockReturnValueOnce(pendingPromise);
+
+    renderHook(() => useGuestTable());
+
+    expect(guestService.fetchMyTable).toHaveBeenCalledTimes(1);
+
+    // While in-flight, focus and online should be ignored
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+      window.dispatchEvent(new Event('online'));
+    });
+
+    expect(guestService.fetchMyTable).toHaveBeenCalledTimes(1);
+
+    // Finish in-flight
+    await act(async () => {
+      resolveInFlight({
+        session: { id: 's1', status: 'open' },
+        me: { id: 'p1', status: 'approved' },
+      });
+      await Promise.resolve();
+    });
+  });
+
+  test('18. focus and online listeners are removed on unmount', () => {
+    const removeSpy = vi.spyOn(window, 'removeEventListener');
+
+    const { unmount } = renderHook(() => useGuestTable());
+
+    unmount();
+
+    expect(removeSpy).toHaveBeenCalledWith('focus', expect.any(Function));
+    expect(removeSpy).toHaveBeenCalledWith('online', expect.any(Function));
+
+    removeSpy.mockRestore();
+  });
 });

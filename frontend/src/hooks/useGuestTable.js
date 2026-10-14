@@ -4,12 +4,15 @@ import { fetchMyTable, readGuestToken } from '../services/guestService.js';
 import { GUEST_POLL_MS, endedCodeOf } from '../utils/guestSession.js';
 import { EVENTS } from '../utils/constants.js';
 
-export const useGuestTable = () => {
+export const useGuestTable = ({ pollMs } = {}) => {
   const token = readGuestToken();
   const [status, setStatus] = useState(token ? 'loading' : 'noToken');
   const [data, setData] = useState(null);
   const [endedCode, setEndedCode] = useState(null);
   const [offline, setOffline] = useState(false);
+
+  const pollMsRef = useRef(pollMs ?? GUEST_POLL_MS);
+  pollMsRef.current = pollMs ?? GUEST_POLL_MS;
 
   const isMountedRef = useRef(true);
   const inFlightRef = useRef(false);
@@ -33,9 +36,10 @@ export const useGuestTable = () => {
     if (statusRef.current === 'ended' || statusRef.current === 'noToken') return;
     if (typeof document !== 'undefined' && document.hidden) return;
 
+    const delay = typeof pollMsRef.current === 'number' && pollMsRef.current > 0 ? pollMsRef.current : GUEST_POLL_MS;
     timerRef.current = setTimeout(() => {
       fetchData();
-    }, GUEST_POLL_MS);
+    }, delay);
   };
 
   const fetchData = async () => {
@@ -118,6 +122,17 @@ export const useGuestTable = () => {
       setEndedCode(e?.detail?.code || null);
     };
 
+    const handleWindowActive = () => {
+      if (!isMountedRef.current) return;
+      if (typeof document !== 'undefined' && document.hidden) return;
+      if (statusRef.current !== 'ended' && statusRef.current !== 'noToken') {
+        if (!inFlightRef.current) {
+          clearPollTimer();
+          fetchData();
+        }
+      }
+    };
+
     const handleVisibilityChange = () => {
       if (!isMountedRef.current) return;
       if (typeof document === 'undefined') return;
@@ -125,17 +140,22 @@ export const useGuestTable = () => {
       if (document.hidden) {
         clearPollTimer();
       } else {
-        if (statusRef.current !== 'ended' && statusRef.current !== 'noToken') {
-          if (!inFlightRef.current) {
-            clearPollTimer();
-            fetchData();
-          }
-        }
+        handleWindowActive();
       }
+    };
+
+    const handleFocus = () => {
+      handleWindowActive();
+    };
+
+    const handleOnline = () => {
+      handleWindowActive();
     };
 
     if (typeof window !== 'undefined') {
       window.addEventListener(EVENTS.GUEST_ENDED, handleGuestEnded);
+      window.addEventListener('focus', handleFocus);
+      window.addEventListener('online', handleOnline);
     }
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -146,6 +166,8 @@ export const useGuestTable = () => {
       clearPollTimer();
       if (typeof window !== 'undefined') {
         window.removeEventListener(EVENTS.GUEST_ENDED, handleGuestEnded);
+        window.removeEventListener('focus', handleFocus);
+        window.removeEventListener('online', handleOnline);
       }
       if (typeof document !== 'undefined') {
         document.removeEventListener('visibilitychange', handleVisibilityChange);
