@@ -474,8 +474,34 @@ Manual checks:
 | Staff session controls (approve, reject, reset, remove) exist in the API but have no screen yet | kitchen screens task | pending | open |
 | QR codes encode CLIENT_URL, which must be the public address before any code is printed | final review (deployment) | pending | open |
 | Guest session reconnection UX: token persistence is in sessionStorage only, so closing the browser tab loses the session and requires re-scanning the QR code | Future enhancement: session recovery token or encrypted cookie | pending | open |
-| Real-time updates via WebSockets / Server-Sent Events: guest polling is currently interval-based (5s), so approvals and menu updates have up to a 5-second latency | Closed in Task 10b: real-time Socket.io live connection delivers instant `session:changed` and `cart:changed` notifications | `guestSocket.test.js` and `realtime.test.js` | closed (Task 10b) |
 | Test fixtures must use the exact shapes the server sends (the dish keys are listed in the 10a prompt); invented field names let tests pass while the real screen is wrong | closed by the one fixture helper and the rules test | GuestMenuList.test.jsx and sourceRules.test.js | open for later screens |
+| Placing the order is not built yet (Task 11); the order step must refuse unavailable lines and lines that are not safe for the guest who added them | Task 11 | pending | open |
+
+## Shared Table Cart Screens & Live Updates (Task 10c)
+
+### Automated Test Coverage
+
+| Feature / Scenario | Expected Result | Test File | Status |
+| :--- | :--- | :--- | :--- |
+| Cart API Service (`cartService.js`) | Correct method, path, JSON body, URL encoding, and error propagation for getCart, addToCart, decreaseLine, removeLine | `frontend/src/services/cartService.test.js` | Passed |
+| Live Socket Connection (`liveSocket.js`) | Connects with path `/socket.io`, dynamic auth function sending guest token, websocket/polling transports, no token in URL/query | `frontend/src/services/liveSocket.test.js` | Passed |
+| Adaptive Polling Hook (`useGuestTable.js`) | Dynamically adjusts polling interval (30000ms when live, 5000ms when reconnecting/offline); immediate refresh on window focus and online | `frontend/src/hooks/useGuestTable.test.jsx` | Passed |
+| Receive-Only Live Socket Manager (`useLiveConnection.js`) | Transitions connecting -> live -> reconnecting; dispatches actions for session and cart pings; never calls emit; clean disconnect | `frontend/src/hooks/useLiveConnection.test.jsx` | Passed |
+| Shared Cart Management Hook (`useCart.js`) | Manages cart state; ignores stale versions via `shouldApplyCart`; coalesces in-flight refresh requests; maps error codes to friendly text | `frontend/src/hooks/useCart.test.jsx` | Passed |
+| Guest Menu Add Integration (`GuestMenuList.jsx`) | Displays ghost Add button for safe dishes only; indicates existing quantity in order; re-fetches menu on reloadToken change | `frontend/src/Components/Guest/GuestMenuList.test.jsx` | Passed |
+| Cart Bar Component (`CartBar.jsx`) | Fixed bottom bar displaying formatted item counts and total; triggers onOpen modal callback; adheres to tap targets | `frontend/src/Components/Guest/CartBar.test.jsx` | Passed |
+| Order Sheet Component (`CartSheet.jsx`) | Groups lines by adder; enforces line edit permissions (+, -, remove); highlights warnings/unavailable lines; displays totals and notes | `frontend/src/Components/Guest/CartSheet.test.jsx` | Passed |
+| Full Guest Table Integration (`GuestTable.jsx`) | End-to-end integration with real hooks and child components; live reconnection banner; cart modal flow; allergy and waiting screen isolation | `frontend/src/pages/GuestTable.test.jsx` | Passed |
+| Source Rules Architecture Verification (`sourceRules.test.js`) | Rule 12 verification: only liveSocket imports socket.io-client; no query token; no .emit; no .allergens or allergensConfirmed; no forbidden patterns | `frontend/src/utils/sourceRules.test.js` | Passed |
+
+### Manual Verification Checklist
+1. **Side-by-side Multi-Guest Sync**: Open two windows side by side at the same table; adding a dish in one shows the bar change in the other within about a second.
+2. **Allergy Safety Filter on Add & Sheet**: A guest with a peanut allergy sees no Add button on peanut dishes and the sheet marks a peanut line added by someone else.
+3. **Role-Based Cart Permissions**: The host can remove any line and an ordinary guest only their own.
+4. **Quantity Boundaries**: Take one off stops at 1 and Remove removes the line.
+5. **Connection Drop & Auto-Recovery**: Stopping the backend shows the reconnecting banner and restarting it brings the cart back by itself.
+6. **Network Protocol Verification**: The browser's Network tab shows a "socket.io" websocket with status 101.
+
 
 
 

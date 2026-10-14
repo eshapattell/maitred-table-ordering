@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import GuestMenuList from './GuestMenuList.jsx';
 import * as guestService from '../../services/guestService.js';
 import { MESSAGES } from '../../utils/messages.js';
+import { buildCartView } from '../../../../backend/utils/cartView.js';
 
 vi.mock('../../services/guestService.js', () => ({
   fetchGuestMenu: vi.fn(),
@@ -309,5 +310,97 @@ describe('GuestMenuList', () => {
     expect(await screen.findByText('Tahini Noodle Bowl')).toBeInTheDocument();
     expect(screen.queryByRole('note')).not.toBeInTheDocument();
     expect(screen.queryByText(/sesame/i)).not.toBeInTheDocument();
+  });
+
+  // Task 10c additions:
+  it('shows ghost Add button for safe dishes and NO add button for unsafe dishes', async () => {
+    const onAdd = vi.fn();
+    guestService.fetchGuestMenu.mockResolvedValue(sampleDishes);
+
+    render(<GuestMenuList onAdd={onAdd} />);
+
+    // Safe dish (Paneer Tikka) has Add button
+    const addBtn = await screen.findByRole('button', {
+      name: MESSAGES.guest.cartAddAria('Paneer Tikka'),
+    });
+    expect(addBtn).toBeInTheDocument();
+    expect(addBtn).toHaveTextContent(MESSAGES.guest.cartAdd);
+
+    // Unsafe dishes (Prawn Balchao, Gulab Jamun) have NO add button
+    expect(
+      screen.queryByRole('button', { name: MESSAGES.guest.cartAddAria('Prawn Balchao') })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: MESSAGES.guest.cartAddAria('Gulab Jamun') })
+    ).not.toBeInTheDocument();
+  });
+
+  it('calls onAdd when Add button is clicked', async () => {
+    const onAdd = vi.fn();
+    guestService.fetchGuestMenu.mockResolvedValue([sampleDishes[0]]);
+
+    render(<GuestMenuList onAdd={onAdd} />);
+
+    const addBtn = await screen.findByRole('button', {
+      name: MESSAGES.guest.cartAddAria('Paneer Tikka'),
+    });
+    fireEvent.click(addBtn);
+
+    expect(onAdd).toHaveBeenCalledTimes(1);
+    expect(onAdd).toHaveBeenCalledWith(sampleDishes[0]);
+  });
+
+  it('disables Add button when busy is true', async () => {
+    const onAdd = vi.fn();
+    guestService.fetchGuestMenu.mockResolvedValue([sampleDishes[0]]);
+
+    render(<GuestMenuList onAdd={onAdd} busy={true} />);
+
+    const addBtn = await screen.findByRole('button', {
+      name: MESSAGES.guest.cartAddAria('Paneer Tikka'),
+    });
+    expect(addBtn).toBeDisabled();
+  });
+
+  it('shows cartInYourOrder(n) when myQuantityFor is above 0', async () => {
+    guestService.fetchGuestMenu.mockResolvedValue([sampleDishes[0]]);
+
+    // Build real cart using buildCartView
+    const viewer = { id: 'p1', role: 'guest', status: 'approved', allergiesDeclared: true, allergies: [] };
+    const session = {
+      cartVersion: 1,
+      participants: [viewer],
+      cart: [
+        {
+          cartItemId: '00000000-0000-4000-8000-000000000001',
+          itemId: 'dish-1',
+          qty: 3,
+          addedBy: 'p1',
+          isSurprise: false,
+        },
+      ],
+    };
+    const backendItem = { ...sampleDishes[0], _id: sampleDishes[0].id, available: true };
+    const cart = buildCartView({ session, items: [backendItem], viewer });
+
+    render(<GuestMenuList cart={cart} viewerId="p1" />);
+
+    expect(await screen.findByText(MESSAGES.guest.cartInYourOrder(3))).toBeInTheDocument();
+  });
+
+  it('refetches menu when reloadToken changes', async () => {
+    guestService.fetchGuestMenu.mockResolvedValue([sampleDishes[0]]);
+
+    const { rerender } = render(<GuestMenuList reloadToken={1} />);
+
+    await screen.findByText('Paneer Tikka');
+    expect(guestService.fetchGuestMenu).toHaveBeenCalledTimes(1);
+
+    // Change reloadToken
+    rerender(<GuestMenuList reloadToken={2} />);
+
+    await waitFor(() => {
+      expect(guestService.fetchGuestMenu).toHaveBeenCalledTimes(2);
+    });
   });
 });

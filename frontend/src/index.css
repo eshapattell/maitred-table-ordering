@@ -1246,4 +1246,188 @@ a:hover {
   }
 }
 
+/* Task 10c: Shared Cart Bar, Cart Sheet, Live Banner, and Spacing */
+.guest-cart-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  background-color: var(--color-surface-raised);
+  border: none;
+  border-top: 1px solid var(--color-border-strong);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  font-weight: 500;
+  min-height: calc(var(--tap-target) + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 100;
+  box-shadow: 0 -2px 10px var(--color-overlay);
+  transition: background-color var(--transition);
+}
+
+.guest-cart-bar:hover {
+  background-color: var(--color-surface);
+}
+
+.guest-cart-bar:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.guest-menu-list {
+  padding-bottom: calc(var(--tap-target) + var(--space-7) + env(safe-area-inset-bottom, 0px));
+}
+
+.guest-live-banner {
+  background-color: var(--color-surface-raised);
+  color: var(--color-accent);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.guest-dish-order-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.guest-dish-in-order {
+  font-size: 0.8125rem;
+  color: var(--color-accent);
+}
+
+.guest-dish-add-btn {
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-4);
+}
+
+.cart-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.cart-sheet__empty {
+  color: var(--color-text-muted);
+  font-size: 1rem;
+  padding: var(--space-4) 0;
+}
+
+.cart-sheet__group {
+  margin-bottom: var(--space-4);
+}
+
+.cart-sheet__group-heading {
+  font-size: 1.125rem;
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.cart-sheet__lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.cart-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background-color: var(--color-surface-raised);
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+}
+
+.cart-line--warn {
+  border-left: 4px solid var(--color-danger);
+}
+
+.cart-line__info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  flex: 1;
+}
+
+.cart-line__name {
+  font-size: 1rem;
+  margin: 0;
+  word-break: break-word;
+}
+
+.cart-line__quantity,
+.cart-line__total {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.cart-line__chip {
+  display: inline-block;
+  align-self: flex-start;
+  font-size: 0.75rem;
+  padding: var(--space-1) var(--space-2);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-danger);
+  margin-top: var(--space-1);
+}
+
+.cart-line__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.cart-line__actions .btn {
+  min-height: var(--tap-target);
+  min-width: var(--tap-target);
+  padding: var(--space-2) var(--space-3);
+}
+
+.cart-sheet__footer {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.cart-sheet__total-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 1.125rem;
+  font-weight: 500;
+  color: var(--color-text);
+  margin-bottom: var(--space-2);
+}
+
+.cart-sheet__hidden-note,
+.cart-sheet__shared-note,
+.cart-sheet__placeholder {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+
 

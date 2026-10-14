@@ -10,12 +10,21 @@ import {
   menuCounts,
   filterGuestMenu,
 } from '../../utils/guestMenu.js';
+import { myQuantityFor } from '../../utils/guestCart.js';
 import { groupByCategory } from '../../utils/menuView.js';
 import { formatPrice } from '../../utils/formatters.js';
 import { OPTION_LABELS } from '../../utils/menuOptions.js';
 import { MESSAGES } from '../../utils/messages.js';
 
-export const GuestMenuList = ({ onChangeAllergies, onNeedRefresh }) => {
+export const GuestMenuList = ({
+  onChangeAllergies,
+  onNeedRefresh,
+  cart,
+  viewerId,
+  onAdd,
+  busy,
+  reloadToken,
+}) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isAuthBlocked, setIsAuthBlocked] = useState(false);
@@ -50,7 +59,7 @@ export const GuestMenuList = ({ onChangeAllergies, onNeedRefresh }) => {
 
   useEffect(() => {
     loadMenu();
-  }, [loadMenu]);
+  }, [loadMenu, reloadToken]);
 
   if (loading) {
     return <Loader />;
@@ -136,6 +145,11 @@ export const GuestMenuList = ({ onChangeAllergies, onNeedRefresh }) => {
                     {dish.description && (
                       <p className="guest-dish-desc">{dish.description}</p>
                     )}
+                    {myQuantityFor(cart, dish.id, viewerId) > 0 && (
+                      <span className="guest-dish-in-order">
+                        {MESSAGES.guest.cartInYourOrder(myQuantityFor(cart, dish.id, viewerId))}
+                      </span>
+                    )}
                     {!isSafeForGuest(dish) && (
                       <span
                         className="guest-dish-flag guest-dish-flag--unsafe"
@@ -143,6 +157,18 @@ export const GuestMenuList = ({ onChangeAllergies, onNeedRefresh }) => {
                       >
                         {unsafeLabel(dish)}
                       </span>
+                    )}
+                    {isSafeForGuest(dish) && onAdd && (
+                      <div className="guest-dish-actions">
+                        <Button
+                          variant="ghost"
+                          aria-label={MESSAGES.guest.cartAddAria(dish.name)}
+                          disabled={Boolean(busy)}
+                          onClick={() => onAdd(dish)}
+                        >
+                          {MESSAGES.guest.cartAdd}
+                        </Button>
+                      </div>
                     )}
                   </article>
                 ))}

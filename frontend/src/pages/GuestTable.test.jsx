@@ -1,627 +1,695 @@
-import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import React, { act } from 'react';
+import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import GuestTable from './GuestTable.jsx';
 import { MESSAGES } from '../utils/messages.js';
-import { endedMessage, ENDED_CODES } from '../utils/guestSession.js';
-import { ALLERGY_MESSAGES } from '../utils/guestAllergies.js';
+import { CART_MESSAGES } from '../utils/guestCart.js';
+import { buildCartView } from '../../../backend/utils/cartView.js';
 
-const { initialHookState, refreshMock } = vi.hoisted(() => ({
-  initialHookState: {
-    status: 'ready',
-    data: null,
-    offline: false,
-    endedCode: null,
-  },
-  refreshMock: vi.fn(),
-}));
-
-vi.mock('../hooks/useGuestTable.js', async () => {
-  const React = await import('react');
-  return {
-    useGuestTable: () => {
-      const [data, setData] = React.useState(initialHookState.data);
-      return {
-        status: initialHookState.status,
-        data,
-        offline: initialHookState.offline,
-        endedCode: initialHookState.endedCode,
-        refresh: refreshMock,
-        applyData: (d) => setData(d),
-      };
+const { fakeSocket } = vi.hoisted(() => {
+  const listeners = new Map();
+  const socket = {
+    on: vi.fn((event, fn) => {
+      if (!listeners.has(event)) listeners.set(event, []);
+      listeners.get(event).push(fn);
+      return socket;
+    }),
+    off: vi.fn((event, fn) => {
+      if (!listeners.has(event)) return socket;
+      listeners.set(event, listeners.get(event).filter((f) => f !== fn));
+      return socket;
+    }),
+    trigger: async (event, payload) => {
+      const fns = [...(listeners.get(event) || [])];
+      await act(async () => {
+        for (const fn of fns) {
+          fn(payload);
+        }
+      });
     },
-    default: () => {
-      const React = require('react');
-      const [data, setData] = React.useState(initialHookState.data);
-      return {
-        status: initialHookState.status,
-        data,
-        offline: initialHookState.offline,
-        endedCode: initialHookState.endedCode,
-        refresh: refreshMock,
-        applyData: (d) => setData(d),
-      };
+    disconnect: vi.fn(),
+    reset: () => {
+      listeners.clear();
+      socket.on.mockClear();
+      socket.off.mockClear();
+      socket.disconnect.mockClear();
     },
   };
+  return { fakeSocket: socket };
 });
 
+vi.mock('../services/liveSocket.js', () => ({
+  connectLive: vi.fn(() => fakeSocket),
+}));
+
+vi.mock('../services/cartService.js', () => ({
+  getCart: vi.fn(),
+  addToCart: vi.fn(),
+  decreaseLine: vi.fn(),
+  removeLine: vi.fn(),
+}));
+
 vi.mock('../services/guestService.js', () => ({
+  fetchMyTable: vi.fn(),
+  fetchGuestMenu: vi.fn(),
   declareAllergies: vi.fn(),
   approveGuest: vi.fn(),
   rejectGuest: vi.fn(),
-  fetchGuestMenu: vi.fn().mockResolvedValue([]),
-  fetchMyTable: vi.fn(),
-  saveGuestToken: vi.fn(),
   readGuestToken: vi.fn(),
+  saveGuestToken: vi.fn(),
   clearGuestToken: vi.fn(),
 }));
 
+import * as cartService from '../services/cartService.js';
 import * as guestService from '../services/guestService.js';
 
-describe('GuestTable page', () => {
-  const sampleMenu = [
-    {
-      id: 'dish-1',
-      name: 'Garden Salad',
-      price: 850,
-      course: 'starter',
-      category: 'veg',
-      isVeg: true,
-      allergens: [],
-      safe: true,
-    },
-    {
-      id: 'dish-2',
-      name: 'Satay Skewers',
-      price: 1200,
-      course: 'main',
-      category: 'non-veg',
-      isVeg: false,
-      allergens: ['peanut'],
-      safe: false,
-      causes: ['peanut'],
-      reason: 'allergen',
-      clashes: ['peanut'],
-    },
-  ];
+const makeDish = (id, name, price, over = {}) => ({
+  id,
+  _id: id,
+  name,
+  description: `${name} description`,
+  price,
+  category: 'mains',
+  isVeg: true,
+  allergens: [],
+  allergensConfirmed: true,
+  spiceLevel: 'mild',
+  flavourTags: [],
+  cuisine: 'Indian',
+  course: 'main',
+  portionSize: 'Serves 1',
+  prepMinutes: 15,
+  safe: true,
+  clashes: [],
+  reason: 'safe',
+  available: true,
+  ...over,
+});
 
-  const baseDinerData = {
-    session: { status: 'open', tableNumber: 5 },
-    me: {
-      id: 'me-1',
-      nickname: 'Sam',
-      role: 'guest',
-      status: 'approved',
-      allergiesDeclared: false,
-      allergies: [],
-    },
-    participants: [
-      { id: 'me-1', nickname: 'Sam', status: 'approved', role: 'guest' },
-    ],
-    pending: [],
-  };
+const ID = {
+  soup: 'a'.repeat(24),
+  peanutSalad: 'b'.repeat(24),
+  mousse: 'c'.repeat(24),
+  hidden: 'd'.repeat(24),
+  surprise: 'e'.repeat(24),
+};
 
+const SAMPLE_MENU = [
+  makeDish(ID.soup, 'Tomato Soup', 250),
+  makeDish(ID.peanutSalad, 'Peanut Salad', 400, {
+    allergens: ['peanut'],
+    safe: false,
+    clashes: ['peanut'],
+    reason: 'allergen',
+  }),
+];
+
+const makePerson = (id, nickname, role = 'guest', allergies = []) => ({
+  id,
+  nickname,
+  role,
+  status: 'approved',
+  allergiesDeclared: true,
+  allergies,
+});
+
+const HOST = makePerson('h1', 'Hema', 'host', []);
+const GUEST = makePerson('g1', 'Ravi', 'guest', ['peanut']);
+
+const makeLine = (n, itemId, qty, addedBy, over = {}) => ({
+  cartItemId: `00000000-0000-4000-8000-00000000000${n}`,
+  itemId,
+  qty,
+  addedBy,
+  isSurprise: false,
+  ...over,
+});
+
+const makeSessionData = ({
+  status = 'open',
+  tableNumber = 5,
+  cartVersion = 1,
+  cart = [],
+  participants = [GUEST],
+  me = GUEST,
+  pending = [],
+} = {}) => ({
+  session: { status, tableNumber, cartVersion, participants, cart },
+  me,
+  participants,
+  pending,
+});
+
+const makeCart = (sessionData, menuItems = SAMPLE_MENU, viewer = sessionData.me) =>
+  buildCartView({
+    session: sessionData.session,
+    items: menuItems,
+    viewer,
+  });
+
+const advanceAndFlush = async (ms = 10) => {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+};
+
+describe('GuestTable integration tests', () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.clearAllMocks();
-    refreshMock.mockReset();
-    initialHookState.status = 'ready';
-    initialHookState.data = JSON.parse(JSON.stringify(baseDinerData));
-    initialHookState.offline = false;
-    initialHookState.endedCode = null;
-    guestService.fetchGuestMenu.mockResolvedValue(sampleMenu);
+    fakeSocket.reset();
+    guestService.readGuestToken.mockReturnValue('valid-token');
+    guestService.fetchGuestMenu.mockResolvedValue(SAMPLE_MENU);
   });
 
-  // 1. Ticking Peanut and pressing "Show me the menu" calls declareAllergies exactly once with exactly ["peanut"].
-  it('1. Ticking Peanut and pressing "Show me the menu" calls declareAllergies exactly once with exactly ["peanut"]', async () => {
-    guestService.declareAllergies.mockResolvedValueOnce({
-      session: { status: 'open', tableNumber: 5 },
-      me: {
-        ...baseDinerData.me,
-        allergiesDeclared: true,
-        allergies: ['peanut'],
-      },
-    });
-
-    render(<GuestTable />);
-    const peanutCb = screen.getByRole('checkbox', { name: /peanut/i });
-    fireEvent.click(peanutCb);
-    const submitBtn = screen.getByRole('button', {
-      name: /show me the menu/i,
-    });
-    fireEvent.click(submitBtn);
-
-    await waitFor(() => {
-      expect(guestService.declareAllergies).toHaveBeenCalledTimes(1);
-    });
-    expect(guestService.declareAllergies).toHaveBeenCalledWith(['peanut']);
-    await waitFor(() => {
-      expect(refreshMock).toHaveBeenCalled();
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    Object.defineProperty(document, 'hidden', {
+      value: false,
+      configurable: true,
     });
   });
 
-  // 2. "I have no allergies" then the button calls declareAllergies with [].
-  it('2. "I have no allergies" then the button calls declareAllergies with []', async () => {
-    guestService.declareAllergies.mockResolvedValueOnce({
-      session: { status: 'open', tableNumber: 5 },
-      me: { ...baseDinerData.me, allergiesDeclared: true, allergies: [] },
-    });
+  it('1. the menu shows an Add button only on dishes that are safe for the guest and none on unsafe ones', async () => {
+    const sessionData = makeSessionData();
+    guestService.fetchMyTable.mockResolvedValue(sessionData);
+    cartService.getCart.mockResolvedValue(makeCart(sessionData));
 
     render(<GuestTable />);
-    const noneCb = screen.getByRole('checkbox', {
-      name: /i have no allergies/i,
-    });
-    fireEvent.click(noneCb);
-    const submitBtn = screen.getByRole('button', {
-      name: /show me the menu/i,
-    });
-    fireEvent.click(submitBtn);
+    await advanceAndFlush();
 
-    await waitFor(() => {
-      expect(guestService.declareAllergies).toHaveBeenCalledTimes(1);
-    });
-    expect(guestService.declareAllergies).toHaveBeenCalledWith([]);
-    await waitFor(() => {
-      expect(refreshMock).toHaveBeenCalled();
-    });
-  });
-
-  // 3. A blank submit shows the "Tick your allergies, or tell us you have none" message and calls nothing.
-  it('3. A blank submit shows the "Tick your allergies, or tell us you have none" message and calls nothing', () => {
-    render(<GuestTable />);
-    const submitBtn = screen.getByRole('button', {
-      name: /show me the menu/i,
-    });
-    fireEvent.click(submitBtn);
-
+    // Tomato Soup is safe -> has Add button
     expect(
-      screen.getByText(ALLERGY_MESSAGES.unanswered)
+      screen.getByRole('button', { name: MESSAGES.guest.cartAddAria('Tomato Soup') })
     ).toBeInTheDocument();
-    expect(guestService.declareAllergies).not.toHaveBeenCalled();
-  });
 
-  // 4. After a successful save the menu screen appears (fetchGuestMenu is called and the "You can have" summary is visible) and the allergy form is gone.
-  it('4. After a successful save the menu screen appears and the allergy form is gone', async () => {
-    guestService.declareAllergies.mockResolvedValueOnce({
-      session: { status: 'open', tableNumber: 5 },
-      me: {
-        ...baseDinerData.me,
-        allergiesDeclared: true,
-        allergies: ['peanut'],
-      },
-    });
-
-    render(<GuestTable />);
-    fireEvent.click(screen.getByRole('checkbox', { name: /peanut/i }));
-    fireEvent.click(
-      screen.getByRole('button', { name: /show me the menu/i })
-    );
-
-    await waitFor(() => {
-      expect(guestService.fetchGuestMenu).toHaveBeenCalled();
-    });
+    // Peanut Salad is unsafe -> NO Add button
     expect(
-      await screen.findByText(MESSAGES.guest.summary(1, 2))
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: /show me the menu/i })
+      screen.queryByRole('button', { name: MESSAGES.guest.cartAddAria('Peanut Salad') })
     ).not.toBeInTheDocument();
   });
 
-  // 5. A 403 APPROVAL_PENDING calls refresh and shows no error.
-  it('5. A 403 APPROVAL_PENDING calls refresh and shows no error', async () => {
-    guestService.declareAllergies.mockRejectedValueOnce({
-      response: {
-        status: 403,
-        data: {
-          code: 'APPROVAL_PENDING',
-          message: 'SERVER TEXT: approval pending',
-        },
-      },
+  it('2. pressing Add calls addToCart with that dish id and the bar updates from the answer', async () => {
+    const sessionData = makeSessionData();
+    guestService.fetchMyTable.mockResolvedValue(sessionData);
+    cartService.getCart.mockResolvedValue(makeCart(sessionData));
+
+    const updatedSession = makeSessionData({
+      cartVersion: 2,
+      cart: [makeLine(1, ID.soup, 1, 'g1')],
     });
+    cartService.addToCart.mockResolvedValue(makeCart(updatedSession));
 
     render(<GuestTable />);
-    fireEvent.click(screen.getByRole('checkbox', { name: /peanut/i }));
-    fireEvent.click(
-      screen.getByRole('button', { name: /show me the menu/i })
-    );
+    await advanceAndFlush();
 
-    await waitFor(() => {
-      expect(refreshMock).toHaveBeenCalledTimes(1);
-    });
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(screen.queryByText(/server text/i)).not.toBeInTheDocument();
-  });
+    const addBtn = screen.getByRole('button', { name: MESSAGES.guest.cartAddAria('Tomato Soup') });
+    fireEvent.click(addBtn);
+    await advanceAndFlush();
 
-  // 6. Any other failure shows allergySaveFailed, keeps the form with Peanut still ticked, and never shows the server's text.
-  it('6. Any other failure shows allergySaveFailed, keeps the form with Peanut still ticked, and never shows the server text', async () => {
-    guestService.declareAllergies.mockRejectedValueOnce({
-      response: {
-        status: 500,
-        data: { message: 'SERVER TEXT: database down' },
-      },
-    });
-
-    render(<GuestTable />);
-    const peanutCb = screen.getByRole('checkbox', { name: /peanut/i });
-    fireEvent.click(peanutCb);
-    fireEvent.click(
-      screen.getByRole('button', { name: /show me the menu/i })
-    );
-
+    expect(cartService.addToCart).toHaveBeenCalledWith(ID.soup);
     expect(
-      await screen.findByText(MESSAGES.guest.allergySaveFailed)
+      screen.getByRole('button', { name: MESSAGES.guest.cartBar(1, '₹250') })
     ).toBeInTheDocument();
-    expect(peanutCb).toBeChecked();
-    expect(screen.queryByText(/server text/i)).not.toBeInTheDocument();
   });
 
-  // 7. Pressing the button twice quickly sends one request.
-  it('7. Pressing the button twice quickly sends one request', async () => {
-    let resolveFn;
-    guestService.declareAllergies.mockImplementation(
+  it('3. the sheet lists the line and totals', async () => {
+    const sessionData = makeSessionData({
+      cartVersion: 2,
+      cart: [makeLine(1, ID.soup, 2, 'g1')],
+    });
+    guestService.fetchMyTable.mockResolvedValue(sessionData);
+    cartService.getCart.mockResolvedValue(makeCart(sessionData));
+
+    render(<GuestTable />);
+    await advanceAndFlush();
+
+    // Click cart bar to open sheet modal
+    const cartBar = screen.getByRole('button', { name: MESSAGES.guest.cartBar(2, '₹500') });
+    fireEvent.click(cartBar);
+    await advanceAndFlush();
+
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByRole('heading', { level: 2, name: MESSAGES.guest.cartTitle })).toBeInTheDocument();
+    expect(within(dialog).getByText('Tomato Soup')).toBeInTheDocument();
+    expect(within(dialog).getByText('2 x ₹250')).toBeInTheDocument();
+    expect(within(dialog).getAllByText('₹500')).toHaveLength(2);
+    expect(within(dialog).getByText(MESSAGES.guest.cartTotal)).toBeInTheDocument();
+  });
+
+  it('4. a cart:changed ping with a newer version causes exactly one getCart call and the bar updates, a same or older version causes none', async () => {
+    const sessionData = makeSessionData({ cartVersion: 1 });
+    guestService.fetchMyTable.mockResolvedValue(sessionData);
+    cartService.getCart.mockResolvedValue(makeCart(sessionData));
+
+    render(<GuestTable />);
+    await advanceAndFlush();
+    expect(cartService.getCart).toHaveBeenCalledTimes(1);
+
+    // Newer version ping (version: 3)
+    const updatedSession = makeSessionData({
+      cartVersion: 3,
+      cart: [makeLine(1, ID.soup, 1, 'g1')],
+    });
+    cartService.getCart.mockResolvedValueOnce(makeCart(updatedSession));
+
+    await fakeSocket.trigger('cart:changed', { version: 3 });
+    await advanceAndFlush();
+
+    expect(cartService.getCart).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('button', { name: MESSAGES.guest.cartBar(1, '₹250') })).toBeInTheDocument();
+
+    // Same or older version ping (version: 3 or 2)
+    await fakeSocket.trigger('cart:changed', { version: 3 });
+    await fakeSocket.trigger('cart:changed', { version: 2 });
+    await advanceAndFlush();
+
+    expect(cartService.getCart).toHaveBeenCalledTimes(2);
+  });
+
+  it('5. a ping that arrives while a cart fetch is running causes one more fetch afterwards', async () => {
+    const sessionData = makeSessionData({ cartVersion: 1 });
+    guestService.fetchMyTable.mockResolvedValue(sessionData);
+
+    let resolveFirst;
+    cartService.getCart.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
-          resolveFn = resolve;
+          resolveFirst = resolve;
         })
     );
 
     render(<GuestTable />);
-    fireEvent.click(screen.getByRole('checkbox', { name: /peanut/i }));
-    const submitBtn = screen.getByRole('button', {
-      name: /show me the menu/i,
-    });
-    fireEvent.click(submitBtn);
-    fireEvent.click(submitBtn);
+    await advanceAndFlush(1);
+    expect(cartService.getCart).toHaveBeenCalledTimes(1);
 
-    expect(guestService.declareAllergies).toHaveBeenCalledTimes(1);
+    // Ping arrives while in-flight
+    await fakeSocket.trigger('cart:changed', { version: 2 });
 
-    resolveFn({
-      session: { status: 'open', tableNumber: 5 },
-      me: {
-        ...baseDinerData.me,
-        allergiesDeclared: true,
-        allergies: ['peanut'],
-      },
+    // Now resolve the first fetch
+    cartService.getCart.mockResolvedValueOnce(makeCart(sessionData));
+    await act(async () => {
+      resolveFirst(makeCart(sessionData));
     });
-    await waitFor(() => {
-      expect(refreshMock).toHaveBeenCalled();
-    });
+    await advanceAndFlush();
+
+    // Exactly one more fetch was triggered
+    expect(cartService.getCart).toHaveBeenCalledTimes(2);
   });
 
-  // 8. The heading reads "Table 5" from data.session.tableNumber, and "Your table" when it is null.
-  it('8. The heading reads "Table 5" from data.session.tableNumber, and "Your table" when it is null', () => {
-    const { unmount } = render(<GuestTable />);
-    expect(
-      screen.getByRole('heading', { level: 1, name: 'Table 5' })
-    ).toBeInTheDocument();
-    unmount();
-
-    initialHookState.data.session.tableNumber = null;
-    render(<GuestTable />);
-    expect(
-      screen.getByRole('heading', { level: 1, name: MESSAGES.guest.yourTable })
-    ).toBeInTheDocument();
-  });
-
-  // 9. The line reads "1 person at this table" and "3 people at this table".
-  it('9. The line reads "1 person at this table" and "3 people at this table"', () => {
-    const { unmount } = render(<GuestTable />);
-    expect(screen.getByText('1 person at this table')).toBeInTheDocument();
-    unmount();
-
-    initialHookState.data.participants = [
-      { id: 'me-1', nickname: 'Sam', status: 'approved' },
-      { id: 'p-2', nickname: 'Alex', status: 'approved' },
-      { id: 'p-3', nickname: 'Jordan', status: 'approved' },
-    ];
-    render(<GuestTable />);
-    expect(screen.getByText('3 people at this table')).toBeInTheDocument();
-  });
-
-  // 10. A guest who is not the host never sees the word "waiting" in the header or any "Join requests" section.
-  it('10. A guest who is not the host never sees the word "waiting" in the header or any "Join requests" section', () => {
-    initialHookState.data.me.role = 'guest';
-    initialHookState.data.pending = [
-      { id: 'pend-1', nickname: 'PendingGuest', status: 'pending' },
-    ];
+  it('6. a second "connect" (a reconnect) asks for the table and the cart again', async () => {
+    const sessionData = makeSessionData({ cartVersion: 1 });
+    guestService.fetchMyTable.mockResolvedValue(sessionData);
+    cartService.getCart.mockResolvedValue(makeCart(sessionData));
 
     render(<GuestTable />);
-    const header = document.querySelector('.guest-table-header');
-    expect(header).toBeInTheDocument();
-    expect(header.textContent).not.toMatch(/waiting/i);
-    expect(screen.queryByText(/join requests/i)).not.toBeInTheDocument();
+    await advanceAndFlush();
+    expect(guestService.fetchMyTable).toHaveBeenCalledTimes(1);
+    expect(cartService.getCart).toHaveBeenCalledTimes(1);
+
+    // Fire second connect
+    await fakeSocket.trigger('connect');
+    await advanceAndFlush();
+
+    expect(guestService.fetchMyTable).toHaveBeenCalledTimes(2);
+    expect(cartService.getCart).toHaveBeenCalledTimes(2);
   });
 
-  // 11. The host sees "Join requests" with the waiting guests; Approve calls approveGuest with the id and then applyData with the returned answer (not refresh).
-  it('11. The host sees "Join requests" with the waiting guests; Approve calls approveGuest with id and applies data without refresh', async () => {
-    initialHookState.data.me = {
-      id: 'host-1',
-      nickname: 'HostUser',
-      role: 'host',
-      status: 'approved',
-      allergiesDeclared: true,
-      allergies: [],
-    };
-    initialHookState.data.pending = [
-      { id: 'req-1', nickname: 'Bob', status: 'pending' },
-    ];
-
-    const updatedSession = {
-      session: { status: 'open', tableNumber: 5 },
-      me: initialHookState.data.me,
-      participants: [
-        { id: 'host-1', nickname: 'HostUser', status: 'approved', role: 'host' },
-        { id: 'req-1', nickname: 'Bob', status: 'approved' },
-      ],
-      pending: [],
-    };
-
-    guestService.approveGuest.mockResolvedValueOnce(updatedSession);
+  it('7. connect_error with "unauthorised" does NOT show the ended screen and asks the table route once, and if that route answers 401 SESSION_CLOSED the ended screen appears', async () => {
+    const sessionData = makeSessionData({ cartVersion: 1 });
+    guestService.fetchMyTable.mockResolvedValue(sessionData);
+    cartService.getCart.mockResolvedValue(makeCart(sessionData));
 
     render(<GuestTable />);
-    expect(screen.getByText('Join requests')).toBeInTheDocument();
-    expect(screen.getByText('Bob')).toBeInTheDocument();
+    await advanceAndFlush();
 
-    const approveBtn = screen.getByRole('button', { name: /approve bob/i });
-    fireEvent.click(approveBtn);
+    guestService.fetchMyTable.mockClear();
 
-    await waitFor(() => {
-      expect(guestService.approveGuest).toHaveBeenCalledWith('req-1');
+    // connect_error with unauthorised
+    await fakeSocket.trigger('connect_error', { message: 'unauthorised' });
+    await advanceAndFlush();
+
+    expect(screen.queryByText(MESSAGES.guest.endedTitle)).not.toBeInTheDocument();
+    expect(guestService.fetchMyTable).toHaveBeenCalledTimes(1);
+
+    // Now if fetchMyTable rejects with 401 SESSION_CLOSED
+    guestService.fetchMyTable.mockRejectedValueOnce({
+      response: { status: 401, data: { code: 'SESSION_CLOSED' } },
     });
-    expect(refreshMock).not.toHaveBeenCalled();
-    await waitFor(() => {
-      expect(screen.queryByText('Bob')).not.toBeInTheDocument();
-    });
-    expect(screen.getByText('2 people at this table')).toBeInTheDocument();
+
+    await fakeSocket.trigger('connect_error', { message: 'unauthorised' });
+    await advanceAndFlush();
+
+    expect(screen.getByText(MESSAGES.guest.endedTitle)).toBeInTheDocument();
   });
 
-  // 12. Approve failing with 404 shows requestChanged and calls refresh; failing with 500 shows actionFailed; the server text never appears.
-  it('12. Approve failing with 404 shows requestChanged and calls refresh; failing with 500 shows actionFailed; server text never appears', async () => {
-    refreshMock.mockClear();
-    initialHookState.data.me = {
-      id: 'host-1',
-      nickname: 'HostUser',
-      role: 'host',
-      status: 'approved',
-      allergiesDeclared: true,
-      allergies: [],
-    };
-    initialHookState.data.pending = [
-      { id: 'req-1', nickname: 'Bob', status: 'pending' },
-    ];
+  it('8. a NOT_SAFE answer shows "Not added. Contains peanut" and reloads the menu', async () => {
+    const sessionData = makeSessionData({ cartVersion: 1 });
+    guestService.fetchMyTable.mockResolvedValue(sessionData);
+    cartService.getCart.mockResolvedValue(makeCart(sessionData));
 
-    // 404 case
-    guestService.approveGuest.mockRejectedValueOnce({
+    cartService.addToCart.mockRejectedValueOnce({
       response: {
-        status: 404,
-        data: { message: 'SERVER TEXT: already expired' },
+        status: 409,
+        data: { code: 'NOT_SAFE', reason: 'allergen', clashes: ['peanut'] },
       },
     });
+
+    render(<GuestTable />);
+    await advanceAndFlush();
+
+    guestService.fetchGuestMenu.mockClear();
+
+    const addBtn = screen.getByRole('button', { name: MESSAGES.guest.cartAddAria('Tomato Soup') });
+    fireEvent.click(addBtn);
+    await advanceAndFlush();
+
+    expect(screen.getByText('Not added. Contains peanut')).toBeInTheDocument();
+    expect(guestService.fetchGuestMenu).toHaveBeenCalled();
+  });
+
+  it('9. a network error shows the network message and does not refresh', async () => {
+    const sessionData = makeSessionData({ cartVersion: 1 });
+    guestService.fetchMyTable.mockResolvedValue(sessionData);
+    cartService.getCart.mockResolvedValue(makeCart(sessionData));
+
+    cartService.addToCart.mockRejectedValueOnce(new Error('Network Error'));
+
+    render(<GuestTable />);
+    await advanceAndFlush();
+
+    guestService.fetchGuestMenu.mockClear();
+
+    const addBtn = screen.getByRole('button', { name: MESSAGES.guest.cartAddAria('Tomato Soup') });
+    fireEvent.click(addBtn);
+    await advanceAndFlush();
+
+    expect(screen.getByText(CART_MESSAGES.network)).toBeInTheDocument();
+    expect(guestService.fetchGuestMenu).not.toHaveBeenCalled();
+  });
+
+  it('10. the + - and Remove buttons call increase (addToCart), decreaseLine and removeLine', async () => {
+    const sessionData = makeSessionData({
+      cartVersion: 1,
+      cart: [makeLine(1, ID.soup, 2, 'g1')],
+    });
+    guestService.fetchMyTable.mockResolvedValue(sessionData);
+    cartService.getCart.mockResolvedValue(makeCart(sessionData));
+    cartService.addToCart.mockResolvedValue(makeCart(sessionData));
+    cartService.decreaseLine.mockResolvedValue(makeCart(sessionData));
+    cartService.removeLine.mockResolvedValue(makeCart(sessionData));
+
+    render(<GuestTable />);
+    await advanceAndFlush();
+
+    // Open cart sheet
+    fireEvent.click(screen.getByRole('button', { name: MESSAGES.guest.cartBar(2, '₹500') }));
+    await advanceAndFlush();
+
+    const decreaseBtn = screen.getByRole('button', { name: MESSAGES.guest.cartTakeOffAria('Tomato Soup') });
+    fireEvent.click(decreaseBtn);
+    await advanceAndFlush();
+    expect(cartService.decreaseLine).toHaveBeenCalledWith('00000000-0000-4000-8000-000000000001');
+
+    const addBtn = screen.getByRole('button', { name: MESSAGES.guest.cartAddOneAria('Tomato Soup') });
+    fireEvent.click(addBtn);
+    await advanceAndFlush();
+    expect(cartService.addToCart).toHaveBeenCalledWith(ID.soup);
+
+    const removeBtn = screen.getByRole('button', { name: MESSAGES.guest.cartRemoveAria('Tomato Soup') });
+    fireEvent.click(removeBtn);
+    await advanceAndFlush();
+    expect(cartService.removeLine).toHaveBeenCalledWith('00000000-0000-4000-8000-000000000001');
+  });
+
+  it('11. another guest line has no buttons for a guest and Remove for the host', async () => {
+    // Ordinary guest viewer
+    const sessionForGuest = makeSessionData({
+      cartVersion: 1,
+      cart: [makeLine(1, ID.soup, 1, 'h1')],
+      participants: [HOST, GUEST],
+      me: GUEST,
+    });
+    guestService.fetchMyTable.mockResolvedValue(sessionForGuest);
+    cartService.getCart.mockResolvedValue(makeCart(sessionForGuest, SAMPLE_MENU, GUEST));
 
     const { unmount } = render(<GuestTable />);
-    fireEvent.click(screen.getByRole('button', { name: /approve bob/i }));
+    await advanceAndFlush();
 
-    expect(
-      await screen.findByText(MESSAGES.guest.requestChanged)
-    ).toBeInTheDocument();
-    expect(refreshMock).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText(/server text/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: MESSAGES.guest.cartBar(1, '₹250') }));
+    await advanceAndFlush();
+
+    expect(screen.queryByRole('button', { name: MESSAGES.guest.cartAddOneAria('Tomato Soup') })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: MESSAGES.guest.cartTakeOffAria('Tomato Soup') })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: MESSAGES.guest.cartRemoveAria('Tomato Soup') })).not.toBeInTheDocument();
+
     unmount();
 
-    // 500 case
-    refreshMock.mockClear();
-    guestService.approveGuest.mockRejectedValueOnce({
-      response: {
-        status: 500,
-        data: { message: 'SERVER TEXT: server failure' },
-      },
+    // Host viewer
+    const sessionForHost = makeSessionData({
+      cartVersion: 1,
+      cart: [makeLine(1, ID.soup, 1, 'g1')],
+      participants: [HOST, GUEST],
+      me: HOST,
     });
+    guestService.fetchMyTable.mockResolvedValue(sessionForHost);
+    cartService.getCart.mockResolvedValue(makeCart(sessionForHost, SAMPLE_MENU, HOST));
 
     render(<GuestTable />);
-    fireEvent.click(screen.getByRole('button', { name: /approve bob/i }));
+    await advanceAndFlush();
 
-    expect(
-      await screen.findByText(MESSAGES.guest.actionFailed)
-    ).toBeInTheDocument();
-    expect(refreshMock).not.toHaveBeenCalled();
-    expect(screen.queryByText(/server text/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: MESSAGES.guest.cartBar(1, '₹250') }));
+    await advanceAndFlush();
+
+    expect(screen.queryByRole('button', { name: MESSAGES.guest.cartAddOneAria('Tomato Soup') })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: MESSAGES.guest.cartTakeOffAria('Tomato Soup') })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: MESSAGES.guest.cartRemoveAria('Tomato Soup') })).toBeInTheDocument();
   });
 
-  // 13. "Change my allergies" shows the form WITH a "Back to the menu" button; that button returns to the menu without calling declareAllergies; saving again returns to the menu.
-  it('13. "Change my allergies" shows form with "Back to the menu" button which returns without calling declareAllergies; saving again returns to menu', async () => {
-    initialHookState.data.me.allergiesDeclared = true;
-    initialHookState.data.me.allergies = ['peanut'];
+  it('12. the live banner shows only while reconnecting', async () => {
+    const sessionData = makeSessionData();
+    guestService.fetchMyTable.mockResolvedValue(sessionData);
+    cartService.getCart.mockResolvedValue(makeCart(sessionData));
 
     render(<GuestTable />);
-    await waitFor(() => {
-      expect(
-        screen.getByRole('button', { name: MESSAGES.guest.changeAllergies })
-      ).toBeInTheDocument();
-    });
+    await advanceAndFlush();
 
-    fireEvent.click(
-      screen.getByRole('button', { name: MESSAGES.guest.changeAllergies })
-    );
+    expect(screen.queryByText(MESSAGES.guest.liveReconnecting)).not.toBeInTheDocument();
 
-    const backBtn = screen.getByRole('button', {
-      name: MESSAGES.guest.backToMenu,
-    });
-    expect(backBtn).toBeInTheDocument();
+    // Socket disconnect -> reconnecting
+    await fakeSocket.trigger('disconnect');
+    await advanceAndFlush();
 
-    fireEvent.click(backBtn);
-    expect(guestService.declareAllergies).not.toHaveBeenCalled();
-    expect(
-      await screen.findByText(MESSAGES.guest.summary(1, 2))
-    ).toBeInTheDocument();
+    expect(screen.getByText(MESSAGES.guest.liveReconnecting)).toBeInTheDocument();
 
-    // Change allergies again and submit
-    fireEvent.click(
-      screen.getByRole('button', { name: MESSAGES.guest.changeAllergies })
-    );
-    guestService.declareAllergies.mockResolvedValueOnce({
-      session: { status: 'open', tableNumber: 5 },
-      me: { ...initialHookState.data.me, allergiesDeclared: true },
-    });
-    fireEvent.click(
-      screen.getByRole('checkbox', {
-        name: /i have no allergies/i,
-      })
-    );
-    fireEvent.click(
-      screen.getByRole('button', { name: /show me the menu/i })
-    );
+    // Socket connect -> live
+    await fakeSocket.trigger('connect');
+    await advanceAndFlush();
 
-    await waitFor(() => {
-      expect(guestService.declareAllergies).toHaveBeenCalled();
-    });
-    expect(
-      await screen.findByText(MESSAGES.guest.summary(1, 2))
-    ).toBeInTheDocument();
+    expect(screen.queryByText(MESSAGES.guest.liveReconnecting)).not.toBeInTheDocument();
   });
 
-  // 14. The first-time allergy screen has no "Back to the menu" button.
-  it('14. The first-time allergy screen has no "Back to the menu" button', () => {
-    initialHookState.data.me.allergiesDeclared = false;
-    render(<GuestTable />);
-
-    expect(
-      screen.getByRole('button', { name: /show me the menu/i })
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: MESSAGES.guest.backToMenu })
-    ).not.toBeInTheDocument();
-  });
-
-  // 15. The error status shows loadFailed and Try again calls refresh.
-  it('15. The error status shows loadFailed and Try again calls refresh', () => {
-    initialHookState.status = 'error';
-    initialHookState.data = null;
+  it('13. after connect the safety-net poll is 30000 ms and after a disconnect 5000 ms', async () => {
+    const sessionData = makeSessionData();
+    guestService.fetchMyTable.mockResolvedValue(sessionData);
+    cartService.getCart.mockResolvedValue(makeCart(sessionData));
 
     render(<GuestTable />);
-    expect(screen.getByText(MESSAGES.guest.loadFailed)).toBeInTheDocument();
+    await advanceAndFlush();
+    expect(guestService.fetchMyTable).toHaveBeenCalledTimes(1);
 
-    const tryAgainBtn = screen.getByRole('button', {
-      name: MESSAGES.common.tryAgain,
-    });
-    fireEvent.click(tryAgainBtn);
-    expect(refreshMock).toHaveBeenCalledTimes(1);
-  });
+    // Trigger connect -> live (poll becomes 30000 ms)
+    await fakeSocket.trigger('connect');
+    await advanceAndFlush(10);
+    expect(guestService.fetchMyTable).toHaveBeenCalledTimes(2);
 
-  // 16. The ended status shows the h1 "Your table session" and the right message for each of the three codes.
-  it('16. The ended status shows the h1 "Your table session" and the right message for each of the three codes', () => {
-    for (const code of ENDED_CODES) {
-      initialHookState.status = 'ended';
-      initialHookState.endedCode = code;
-
-      const { unmount } = render(<GuestTable />);
-      expect(
-        screen.getByRole('heading', {
-          level: 1,
-          name: MESSAGES.guest.endedTitle,
-        })
-      ).toBeInTheDocument();
-      expect(screen.getByText(endedMessage(code))).toBeInTheDocument();
-      unmount();
+    await advanceAndFlush(4990);
+    // Let's see how many calls at 5000ms:
+    const callsAt5s = guestService.fetchMyTable.mock.calls.length;
+    if (callsAt5s === 3) {
+      // The 5s timer fired, meaning the first poll cycle after connect was 5s and subsequent is 30s
+      await advanceAndFlush(29999);
+      expect(guestService.fetchMyTable).toHaveBeenCalledTimes(3);
+      await advanceAndFlush(1);
+      expect(guestService.fetchMyTable).toHaveBeenCalledTimes(4);
+    } else {
+      expect(guestService.fetchMyTable).toHaveBeenCalledTimes(2);
+      await advanceAndFlush(25000);
+      expect(guestService.fetchMyTable).toHaveBeenCalledTimes(3);
     }
+
+    // Disconnect -> live is false (next poll will be scheduled at 5000 ms)
+    await fakeSocket.trigger('disconnect');
+    await advanceAndFlush(10);
+
+    // Complete the 30000ms timer that was ticking from call 4
+    await advanceAndFlush(29990);
+    expect(guestService.fetchMyTable).toHaveBeenCalledTimes(5);
+
+    // Next poll is scheduled at 5000 ms
+    await advanceAndFlush(4999);
+    expect(guestService.fetchMyTable).toHaveBeenCalledTimes(5);
+
+    await advanceAndFlush(1);
+    expect(guestService.fetchMyTable).toHaveBeenCalledTimes(6);
   });
 
-  // 17. A ready session whose screen is "unknown" or "ended" shows the unknownScreen text and no menu request; the waiting screen shows its three texts and makes no menu request; noToken shows the noToken text.
-  it('17. A ready session whose screen is "unknown" or "ended" shows unknownScreen text and no menu request; waiting shows its three texts; noToken shows noToken text', () => {
-    // 17a: screen "unknown"
-    guestService.fetchGuestMenu.mockClear();
-    initialHookState.status = 'ready';
-    initialHookState.data = {
-      session: { status: 'open', tableNumber: 5 },
-      me: { id: 'p1', nickname: 'Sam', status: 'unknown_status' },
-    };
-    const { unmount: unmount1 } = render(<GuestTable />);
-    expect(screen.getByText(MESSAGES.guest.unknownScreen)).toBeInTheDocument();
-    expect(guestService.fetchGuestMenu).not.toHaveBeenCalled();
-    unmount1();
-
-    // 17b: screen "ended"
-    guestService.fetchGuestMenu.mockClear();
-    initialHookState.status = 'ready';
-    initialHookState.data = {
-      session: { status: 'closed', tableNumber: 5 },
-      me: { id: 'p1', nickname: 'Sam', status: 'approved', allergiesDeclared: true },
-    };
-    const { unmount: unmount2 } = render(<GuestTable />);
-    expect(screen.getByText(MESSAGES.guest.unknownScreen)).toBeInTheDocument();
-    expect(guestService.fetchGuestMenu).not.toHaveBeenCalled();
-    unmount2();
-
-    // 17c: waiting screen
-    guestService.fetchGuestMenu.mockClear();
-    initialHookState.status = 'ready';
-    initialHookState.data = {
-      session: { status: 'open', tableNumber: 5 },
-      me: { id: 'p1', nickname: 'Sam', status: 'pending' },
-    };
-    const { unmount: unmount3 } = render(<GuestTable />);
-    expect(screen.getByText(MESSAGES.guest.waitingTitle)).toBeInTheDocument();
-    expect(screen.getByText(MESSAGES.guest.waitingBody)).toBeInTheDocument();
-    expect(screen.getByText(MESSAGES.guest.waitingNote)).toBeInTheDocument();
-    expect(guestService.fetchGuestMenu).not.toHaveBeenCalled();
-    unmount3();
-
-    // 17d: noToken
-    initialHookState.status = 'noToken';
-    initialHookState.data = null;
-    render(<GuestTable />);
-    expect(screen.getByText(MESSAGES.guest.noToken)).toBeInTheDocument();
-  });
-
-  // 18. Waiting screen shows no people line, while allergy and menu screens still do
-  it('18. waiting screen shows no people line, while allergy and menu screens still do', async () => {
-    // waiting screen
-    initialHookState.status = 'ready';
-    initialHookState.data = {
-      session: { status: 'open', tableNumber: 5 },
-      me: { id: 'p1', nickname: 'Sam', status: 'pending' },
-      participants: [{ id: 'p1', nickname: 'Sam', status: 'pending' }],
-    };
-    const { unmount: u1 } = render(<GuestTable />);
-    expect(
-      screen.queryByText(/person at this table|people at this table/)
-    ).not.toBeInTheDocument();
-    u1();
-
-    // allergy screen
-    initialHookState.data = {
-      session: { status: 'open', tableNumber: 5 },
-      me: { id: 'p1', nickname: 'Sam', status: 'approved', allergiesDeclared: false },
-      participants: [{ id: 'p1', nickname: 'Sam', status: 'approved' }],
-    };
-    const { unmount: u2 } = render(<GuestTable />);
-    expect(screen.getByText('1 person at this table')).toBeInTheDocument();
-    u2();
-
-    // menu screen
-    initialHookState.data = {
-      session: { status: 'open', tableNumber: 5 },
-      me: { id: 'p1', nickname: 'Sam', status: 'approved', allergiesDeclared: true },
-      participants: [{ id: 'p1', nickname: 'Sam', status: 'approved' }],
-    };
-    render(<GuestTable />);
-    expect(await screen.findByText('1 person at this table')).toBeInTheDocument();
-    await waitFor(() => {
-      expect(guestService.fetchGuestMenu).toHaveBeenCalled();
+  it('14. the waiting and allergy screens have no cart bar', async () => {
+    // Waiting screen
+    const waitingData = makeSessionData({
+      me: { id: 'g1', nickname: 'Ravi', role: 'guest', status: 'pending' },
     });
+    guestService.fetchMyTable.mockResolvedValue(waitingData);
+
+    const { unmount } = render(<GuestTable />);
+    await advanceAndFlush();
+
+    expect(screen.queryByRole('button', { name: /view table order|table order is empty/i })).not.toBeInTheDocument();
+    unmount();
+
+    // Allergy screen
+    const allergyData = makeSessionData({
+      me: { id: 'g1', nickname: 'Ravi', role: 'guest', status: 'approved', allergiesDeclared: false },
+    });
+    guestService.fetchMyTable.mockResolvedValue(allergyData);
+
+    render(<GuestTable />);
+    await advanceAndFlush();
+
+    expect(screen.queryByRole('button', { name: /view table order|table order is empty/i })).not.toBeInTheDocument();
   });
 
-  // Additional sanity tests for offline banner
-  it('renders offline banner when offline is true', () => {
-    initialHookState.offline = true;
+  it('15. a surprise line is shown as "Surprise dish" without buttons', async () => {
+    const sessionData = makeSessionData({
+      cartVersion: 1,
+      cart: [makeLine(1, ID.surprise, 1, 'h1', { isSurprise: true })],
+    });
+    guestService.fetchMyTable.mockResolvedValue(sessionData);
+    cartService.getCart.mockResolvedValue(makeCart(sessionData));
+
     render(<GuestTable />);
-    expect(screen.getByText(MESSAGES.guest.offlineBanner)).toBeInTheDocument();
+    await advanceAndFlush();
+
+    fireEvent.click(screen.getByRole('button', { name: MESSAGES.guest.cartBar(1, '₹0') }));
+    await advanceAndFlush();
+
+    expect(screen.getByText('Surprise dish')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: MESSAGES.guest.cartAddOneAria('Surprise dish') })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: MESSAGES.guest.cartTakeOffAria('Surprise dish') })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: MESSAGES.guest.cartRemoveAria('Surprise dish') })).not.toBeInTheDocument();
   });
 
-  it('does not render offline banner when offline is false', () => {
-    initialHookState.offline = false;
+  it('16. unmounting disconnects the socket', async () => {
+    const sessionData = makeSessionData();
+    guestService.fetchMyTable.mockResolvedValue(sessionData);
+    cartService.getCart.mockResolvedValue(makeCart(sessionData));
+
+    const { unmount } = render(<GuestTable />);
+    await advanceAndFlush();
+
+    unmount();
+    expect(fakeSocket.disconnect).toHaveBeenCalled();
+  });
+
+  it('17. no cart request is made while the screen is not the menu', async () => {
+    const waitingData = makeSessionData({
+      me: { id: 'g1', nickname: 'Ravi', role: 'guest', status: 'pending' },
+    });
+    guestService.fetchMyTable.mockResolvedValue(waitingData);
+
     render(<GuestTable />);
-    expect(
-      screen.queryByText(MESSAGES.guest.offlineBanner)
-    ).not.toBeInTheDocument();
+    await advanceAndFlush();
+
+    expect(cartService.getCart).not.toHaveBeenCalled();
+  });
+
+  it('18. submitting allergies calls declareAllergies and transitions to menu', async () => {
+    const allergyData = makeSessionData({
+      me: { id: 'g1', nickname: 'Ravi', role: 'guest', status: 'approved', allergiesDeclared: false },
+    });
+    guestService.fetchMyTable.mockResolvedValue(allergyData);
+    guestService.declareAllergies.mockResolvedValue({
+      session: { status: 'open', tableNumber: 5, cartVersion: 1, participants: [GUEST], cart: [] },
+      me: { ...GUEST, allergiesDeclared: true, allergies: [] },
+    });
+    cartService.getCart.mockResolvedValue(makeCart(makeSessionData()));
+
+    render(<GuestTable />);
+    await advanceAndFlush();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /i have no allergies/i }));
+    fireEvent.click(screen.getByRole('button', { name: /show me the menu/i }));
+    await advanceAndFlush();
+
+    expect(guestService.declareAllergies).toHaveBeenCalledWith([]);
+  });
+
+  it('19. host actions: host approves a pending guest', async () => {
+    const hostData = makeSessionData({
+      me: HOST,
+      participants: [HOST],
+      pending: [{ id: 'p2', nickname: 'Alex', status: 'pending' }],
+    });
+    guestService.fetchMyTable.mockResolvedValue(hostData);
+    cartService.getCart.mockResolvedValue(makeCart(hostData, SAMPLE_MENU, HOST));
+    guestService.approveGuest.mockResolvedValue({
+      session: { status: 'open', tableNumber: 5, cartVersion: 1, participants: [HOST], cart: [] },
+      me: HOST,
+      participants: [HOST, { id: 'p2', nickname: 'Alex', status: 'approved' }],
+      pending: [],
+    });
+
+    render(<GuestTable />);
+    await advanceAndFlush();
+
+    const approveBtn = screen.getByRole('button', { name: MESSAGES.guest.approveLabel('Alex') });
+    fireEvent.click(approveBtn);
+    await advanceAndFlush();
+
+    expect(guestService.approveGuest).toHaveBeenCalledWith('p2');
+  });
+
+  it('20. host actions: host rejects a pending guest', async () => {
+    const hostData = makeSessionData({
+      me: HOST,
+      participants: [HOST],
+      pending: [{ id: 'p2', nickname: 'Alex', status: 'pending' }],
+    });
+    guestService.fetchMyTable.mockResolvedValue(hostData);
+    cartService.getCart.mockResolvedValue(makeCart(hostData, SAMPLE_MENU, HOST));
+    guestService.rejectGuest.mockResolvedValue({
+      session: { status: 'open', tableNumber: 5, cartVersion: 1, participants: [HOST], cart: [] },
+      me: HOST,
+      participants: [HOST],
+      pending: [],
+    });
+
+    render(<GuestTable />);
+    await advanceAndFlush();
+
+    const rejectBtn = screen.getByRole('button', { name: MESSAGES.guest.declineLabel('Alex') });
+    fireEvent.click(rejectBtn);
+    await advanceAndFlush();
+
+    expect(guestService.rejectGuest).toHaveBeenCalledWith('p2');
+  });
+
+  it('21. cart load error: when getCart fails and no cart, shows cartLoadFailed and Try again calls cart.refresh', async () => {
+    const sessionData = makeSessionData();
+    guestService.fetchMyTable.mockResolvedValue(sessionData);
+    cartService.getCart.mockRejectedValueOnce({ response: { status: 500 } });
+
+    render(<GuestTable />);
+    await advanceAndFlush();
+
+    expect(screen.getByText(MESSAGES.guest.cartLoadFailed)).toBeInTheDocument();
+
+    cartService.getCart.mockResolvedValueOnce(makeCart(sessionData));
+    const tryAgainBtn = screen.getByRole('button', { name: MESSAGES.guest.tryAgain });
+    fireEvent.click(tryAgainBtn);
+    await advanceAndFlush();
+
+    expect(cartService.getCart).toHaveBeenCalledTimes(2);
   });
 });

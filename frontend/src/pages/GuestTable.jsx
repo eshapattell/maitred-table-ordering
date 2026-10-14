@@ -1,12 +1,18 @@
 // GuestTable.jsx: Guest table landing page and state dispatcher
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Loader from '../Components/Common/Loader.jsx';
 import ErrorMessage from '../Components/Common/ErrorMessage.jsx';
 import Button from '../Components/Common/Button.jsx';
+import Modal from '../Components/Common/Modal.jsx';
 import PendingRequests from '../Components/Guest/PendingRequests.jsx';
 import AllergyForm from '../Components/Guest/AllergyForm.jsx';
 import GuestMenuList from '../Components/Guest/GuestMenuList.jsx';
+import CartBar from '../Components/Guest/CartBar.jsx';
+import CartSheet from '../Components/Guest/CartSheet.jsx';
 import { useGuestTable } from '../hooks/useGuestTable.js';
+import { useCart } from '../hooks/useCart.js';
+import { useLiveConnection } from '../hooks/useLiveConnection.js';
+import { pollIntervalFor, cartSummary } from '../utils/guestCart.js';
 import {
   screenFor,
   isHost,
@@ -22,14 +28,51 @@ import {
 import { MESSAGES } from '../utils/messages.js';
 
 export const GuestTable = () => {
-  const { status, data, offline, endedCode, refresh, applyData } =
-    useGuestTable();
-
+  const [liveFlag, setLiveFlag] = useState(false);
+  const [menuReload, setMenuReload] = useState(0);
+  const [isCartModalOpen, setIsCartModalOpen] = useState(false);
   const [screenOverride, setScreenOverride] = useState(null);
   const [allergySubmitting, setAllergySubmitting] = useState(false);
   const [allergyError, setAllergyError] = useState(null);
   const [busyRequest, setBusyRequest] = useState(false);
   const [hostActionError, setHostActionError] = useState(null);
+
+  const table = useGuestTable({ pollMs: pollIntervalFor(liveFlag) });
+  const { status, data, offline, endedCode, refresh, applyData } = table;
+
+  const baseScreen = screenFor(data);
+  const activeScreen =
+    baseScreen === 'menu' || baseScreen === 'allergies'
+      ? screenOverride || baseScreen
+      : baseScreen;
+
+  const onMenu = table.status === 'ready' && activeScreen === 'menu';
+
+  const cart = useCart({
+    enabled: onMenu,
+    onStale: () => setMenuReload((n) => n + 1),
+  });
+
+  const { liveState } = useLiveConnection({
+    enabled: table.status === 'ready',
+    getCartVersion: cart.getVersion,
+    onSessionChanged: table.refresh,
+    onCartChanged: cart.refresh,
+    onLiveChange: setLiveFlag,
+  });
+
+  const prevDataRef = useRef(table.data);
+  useEffect(() => {
+    if (
+      onMenu &&
+      table.data &&
+      prevDataRef.current &&
+      prevDataRef.current !== table.data
+    ) {
+      cart.refresh();
+    }
+    prevDataRef.current = table.data;
+  }, [onMenu, table.data]);
 
   if (status === 'noToken') {
     return (
@@ -139,12 +182,6 @@ export const GuestTable = () => {
     }
   };
 
-  const baseScreen = screenFor(data);
-  const activeScreen =
-    baseScreen === 'menu' || baseScreen === 'allergies'
-      ? screenOverride || baseScreen
-      : baseScreen;
-
   const tableHeading =
     data?.session?.tableNumber != null
       ? MESSAGES.guest.tableHeading(data.session.tableNumber)
@@ -152,6 +189,12 @@ export const GuestTable = () => {
 
   return (
     <div className="guest-table-page">
+      {liveState === 'reconnecting' && (
+        <div className="guest-live-banner" role="status">
+          {MESSAGES.guest.liveReconnecting}
+        </div>
+      )}
+
       {offline && (
         <div className="guest-offline-banner" role="status">
           {MESSAGES.guest.offlineBanner}
@@ -205,10 +248,50 @@ export const GuestTable = () => {
         )}
 
         {activeScreen === 'menu' && (
-          <GuestMenuList
-            onChangeAllergies={() => setScreenOverride('allergies')}
-            onNeedRefresh={refresh}
-          />
+          <>
+            {cart.error && <ErrorMessage>{cart.error}</ErrorMessage>}
+            {cart.status === 'error' && !cart.cart ? (
+              <div className="guest-cart-load-error">
+                <ErrorMessage>{MESSAGES.guest.cartLoadFailed}</ErrorMessage>
+                <Button variant="primary" onClick={cart.refresh}>
+                  {MESSAGES.guest.tryAgain}
+                </Button>
+              </div>
+            ) : (
+              <>
+                <GuestMenuList
+                  onChangeAllergies={() => setScreenOverride('allergies')}
+                  onNeedRefresh={refresh}
+                  cart={cart.cart}
+                  viewerId={data?.me?.id}
+                  onAdd={(dish) => cart.add(dish.id)}
+                  busy={cart.busy}
+                  reloadToken={menuReload}
+                />
+                <CartBar
+                  summary={cartSummary(cart.cart)}
+                  onOpen={() => setIsCartModalOpen(true)}
+                />
+                {isCartModalOpen && (
+                  <Modal
+                    title={MESSAGES.guest.cartTitle}
+                    onClose={() => setIsCartModalOpen(false)}
+                    busy={cart.busy}
+                  >
+                    <CartSheet
+                      cart={cart.cart}
+                      viewerId={data?.me?.id}
+                      busy={cart.busy}
+                      error={cart.error}
+                      onAdd={(line) => cart.add(line.menuItemId)}
+                      onDecrease={(line) => cart.decrease(line.id)}
+                      onRemove={(line) => cart.remove(line.id)}
+                    />
+                  </Modal>
+                )}
+              </>
+            )}
+          </>
         )}
 
         {activeScreen !== 'waiting' &&
