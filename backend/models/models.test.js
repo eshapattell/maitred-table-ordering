@@ -111,6 +111,7 @@ describe('Mongoose Models Schema Validation', () => {
         tableNumber: 2,
         items: [
           {
+            orderItemId: '11111111-1111-4111-8111-111111111111',
             itemId: dummyObjectId(),
             name: 'Wagyu Striploin',
             price: 75,
@@ -216,6 +217,7 @@ describe('Mongoose Models Schema Validation', () => {
         tableNumber: 1,
         items: [
           {
+            orderItemId: '11111111-1111-4111-8111-111111111111',
             itemId: dummyObjectId(),
             name: 'Salad',
             price: 15,
@@ -228,6 +230,92 @@ describe('Mongoose Models Schema Validation', () => {
       const error = order.validateSync();
       expect(error).toBeDefined();
       expect(error.errors.status).toBeDefined();
+    });
+
+    test('Order: an item defaults to "placed"', () => {
+      const order = new Order({
+        sessionId: dummyObjectId(),
+        restaurantId: dummyObjectId(),
+        tableNumber: 1,
+        items: [
+          {
+            orderItemId: '11111111-1111-4111-8111-111111111111',
+            itemId: dummyObjectId(),
+            name: 'Salad',
+            price: 15,
+            qty: 1,
+            orderedBy: 'p1',
+          },
+        ],
+        status: 'placed',
+      });
+      expect(order.validateSync()).toBeUndefined();
+      expect(order.items[0].status).toBe('placed');
+    });
+
+    test('Order: an invalid item status fails validateSync', () => {
+      const order = new Order({
+        sessionId: dummyObjectId(),
+        restaurantId: dummyObjectId(),
+        tableNumber: 1,
+        items: [
+          {
+            orderItemId: '11111111-1111-4111-8111-111111111111',
+            itemId: dummyObjectId(),
+            name: 'Salad',
+            price: 15,
+            qty: 1,
+            orderedBy: 'p1',
+            status: 'cooked',
+          },
+        ],
+        status: 'placed',
+      });
+      const error = order.validateSync();
+      expect(error).toBeDefined();
+      expect(error.errors['items.0.status']).toBeDefined();
+    });
+
+    test('Order: an item without orderItemId fails validateSync', () => {
+      const order = new Order({
+        sessionId: dummyObjectId(),
+        restaurantId: dummyObjectId(),
+        tableNumber: 1,
+        items: [
+          {
+            itemId: dummyObjectId(),
+            name: 'Salad',
+            price: 15,
+            qty: 1,
+            orderedBy: 'p1',
+          },
+        ],
+        status: 'placed',
+      });
+      const error = order.validateSync();
+      expect(error).toBeDefined();
+      expect(error.errors['items.0.orderItemId']).toBeDefined();
+    });
+
+    test('Order: tableAllergies defaults to empty array', () => {
+      const order = new Order({
+        sessionId: dummyObjectId(),
+        restaurantId: dummyObjectId(),
+        tableNumber: 1,
+        items: [
+          {
+            orderItemId: '11111111-1111-4111-8111-111111111111',
+            itemId: dummyObjectId(),
+            name: 'Salad',
+            price: 15,
+            qty: 1,
+            orderedBy: 'p1',
+          },
+        ],
+        status: 'placed',
+      });
+      expect(order.tableAllergies).toBeDefined();
+      expect(order.tableAllergies).toEqual([]);
     });
 
     test('Bill.splitMode rejects invalid values', () => {

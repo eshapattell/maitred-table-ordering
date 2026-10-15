@@ -18,6 +18,7 @@ import { assertJwtSecret } from './utils/generateToken.js';
 import { startIdleSweeper } from './controllers/sessionController.js';
 import { realtime } from './utils/realtime.js';
 import { registerGuestSocket } from './sockets/guestSocket.js';
+import { registerKitchenSocket } from './sockets/kitchenSocket.js';
 
 // Load environment variables from .env
 dotenv.config();
@@ -42,6 +43,7 @@ const io = new SocketIOServer(server, {
 
 realtime.init(io);
 registerGuestSocket(io);
+registerKitchenSocket(io);
 
 // Security and request parsing middleware
 app.use(helmet());

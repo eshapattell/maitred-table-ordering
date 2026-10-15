@@ -1,9 +1,15 @@
 // Order.js: Mongoose model for dining orders sent to the kitchen in maitred
 import mongoose from 'mongoose';
+import { ITEM_STATUSES } from '../utils/orderRules.js';
 
 // Subdocument for individual items within an order ticket
 const orderItemSchema = new mongoose.Schema(
   {
+    // Unique identifier for this dish within the order ticket
+    orderItemId: {
+      type: String,
+      required: true,
+    },
     // Reference to original menu item.
     // IMPORTANT: For isSurprise items, itemId is server-only and must never be sent to a guest client until served and revealed.
     itemId: {
@@ -56,6 +62,12 @@ const orderItemSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // Individual item status in kitchen workflow
+    status: {
+      type: String,
+      enum: ITEM_STATUSES,
+      default: 'placed',
+    },
   },
   { _id: false } // Subdocuments carry custom identifiers and do not need Mongoose _id
 );
@@ -88,6 +100,17 @@ const orderSchema = new mongoose.Schema(
         message: 'Order must contain at least one item',
       },
     },
+    // Table allergies snapshotted at time of placement
+    tableAllergies: {
+      type: [
+        {
+          _id: false,
+          nickname: String,
+          allergies: [String],
+        },
+      ],
+      default: [],
+    },
     // Kitchen order lifecycle: placed -> preparing -> ready -> served
     status: {
       type: String,
@@ -106,6 +129,7 @@ const orderSchema = new mongoose.Schema(
 
 // Index to query active orders for a session and track order progression
 orderSchema.index({ sessionId: 1, status: 1 });
+orderSchema.index({ restaurantId: 1, 'items.status': 1, createdAt: 1 });
 
 const Order = mongoose.model('Order', orderSchema);
 export default Order;

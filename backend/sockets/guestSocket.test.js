@@ -10,7 +10,7 @@ import Table from '../models/Table.js';
 import TableSession from '../models/TableSession.js';
 import MenuItem from '../models/MenuItem.js';
 import { roomFor } from '../utils/liveRules.js';
-import { generateGuestToken } from '../utils/generateToken.js';
+import { generateGuestToken, generateToken } from '../utils/generateToken.js';
 import { connectTestDb, clearTestDb, disconnectTestDb } from '../config/testDb.js';
 import { createFixtures } from '../config/testFixtures.js';
 
@@ -467,5 +467,12 @@ describe('Guest Live Connection (Socket.io)', () => {
     }).not.toThrow();
     await new Promise((r) => setTimeout(r, 100));
     expect(client.connected).toBe(true);
+  });
+
+  test('17. connection with staff token is rejected with "unauthorised"', async () => {
+    const staffToken = fixtures.ownerAToken;
+    const client = connectClient(staffToken);
+    const err = await waitForError(client);
+    expect(err.message).toBe('unauthorised');
   });
 });
