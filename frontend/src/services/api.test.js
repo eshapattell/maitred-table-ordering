@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, vi } from "vitest";
 import axios, { AxiosError } from "axios";
-import api from "./api.js";
+import api, { readAuthToken } from "./api.js";
 import { STORAGE_KEYS, EVENTS } from "../utils/constants.js";
 
 describe("api axios client and interceptors", () => {
@@ -123,4 +123,11 @@ describe("api axios client and interceptors", () => {
 
     window.removeEventListener(EVENTS.UNAUTHORISED, eventListener);
   });
+
+  test("readAuthToken returns current token from sessionStorage or null", () => {
+    expect(readAuthToken()).toBeNull();
+    sessionStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, "jwt-sample");
+    expect(readAuthToken()).toBe("jwt-sample");
+  });
 });
+

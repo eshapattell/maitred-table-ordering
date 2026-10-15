@@ -16,10 +16,12 @@ const api = axios.create({
   timeout: 15000,
 });
 
+export const readAuthToken = () => sessionStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+
 // Request interceptor: attach Bearer token if present in sessionStorage
 api.interceptors.request.use(
   (config) => {
-    const token = sessionStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+    const token = readAuthToken();
     if (token) {
       config.headers = config.headers || {};
       if (typeof config.headers.set === "function") {

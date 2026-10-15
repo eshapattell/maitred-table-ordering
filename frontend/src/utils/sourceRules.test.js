@@ -292,7 +292,7 @@ describe('sourceRules (rule 12 safety and architecture checks)', () => {
   test('only services/liveSocket.js contains "socket.io-client" and no other file under src imports it', () => {
     const checkSocketIoImport = (filePath, content) => {
       const normalized = filePath.replace(/\\/g, '/');
-      if (normalized.endsWith('services/liveSocket.js')) return [];
+      if (normalized.endsWith('services/liveSocket.js') || normalized.endsWith('services/kitchenSocket.js')) return [];
       return content.includes('socket.io-client') ? ['socket.io-client'] : [];
     };
 
@@ -300,6 +300,7 @@ describe('sourceRules (rule 12 safety and architecture checks)', () => {
     expect(checkSocketIoImport('src/pages/GuestTable.jsx', "import io from 'socket.io-client';")).toEqual(['socket.io-client']);
     expect(checkSocketIoImport('src/pages/GuestTable.jsx', "import React from 'react';")).toEqual([]);
     expect(checkSocketIoImport('src/services/liveSocket.js', "import { io } from 'socket.io-client';")).toEqual([]);
+    expect(checkSocketIoImport('src/services/kitchenSocket.js', "import { io } from 'socket.io-client';")).toEqual([]);
 
     const allSource = getAllSourceFiles(SRC_DIR);
     const normalizedFiles = allSource.map((p) => p.replace(/\\/g, '/'));
@@ -307,11 +308,20 @@ describe('sourceRules (rule 12 safety and architecture checks)', () => {
       normalizedFiles.some((f) => f.endsWith('services/liveSocket.js')),
       'Must include services/liveSocket.js'
     ).toBe(true);
+    expect(
+      normalizedFiles.some((f) => f.endsWith('services/kitchenSocket.js')),
+      'Must include services/kitchenSocket.js'
+    ).toBe(true);
 
     const liveSocketPath = allSource.find((f) => f.replace(/\\/g, '/').endsWith('services/liveSocket.js'));
     expect(liveSocketPath, 'services/liveSocket.js must exist').toBeDefined();
     const liveSocketContent = fs.readFileSync(liveSocketPath, 'utf8');
     expect(liveSocketContent.includes('socket.io-client')).toBe(true);
+
+    const kitchenSocketPath = allSource.find((f) => f.replace(/\\/g, '/').endsWith('services/kitchenSocket.js'));
+    expect(kitchenSocketPath, 'services/kitchenSocket.js must exist').toBeDefined();
+    const kitchenSocketContent = fs.readFileSync(kitchenSocketPath, 'utf8');
+    expect(kitchenSocketContent.includes('socket.io-client')).toBe(true);
 
     for (const file of allSource) {
       const content = fs.readFileSync(file, 'utf8');
