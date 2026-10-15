@@ -13,6 +13,7 @@ import tableRoutes from './routes/tableRoutes.js';
 import menuRoutes from './routes/menuRoutes.js';
 import cartRoutes from './routes/cartRoutes.js';
 import sessionRoutes from './routes/sessionRoutes.js';
+import orderRoutes from './routes/orderRoutes.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 import { assertJwtSecret } from './utils/generateToken.js';
 import { startIdleSweeper } from './controllers/sessionController.js';
@@ -60,6 +61,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/restaurants', restaurantRoutes);
 app.use('/api/tables', tableRoutes);
 app.use('/api/menu', menuRoutes);
+app.use('/api/sessions/orders', orderRoutes);
 app.use('/api/sessions/cart', cartRoutes);
 app.use('/api/sessions', sessionRoutes);
 

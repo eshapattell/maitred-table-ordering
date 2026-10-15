@@ -23,7 +23,7 @@ import { realtime } from '../utils/realtime.js';
  * @param {string|mongoose.Types.ObjectId} restaurantId
  * @returns {Promise<{ cart?: object, version?: number, status?: number, error?: object }>}
  */
-const loadCartView = async (sessionId, viewerId, restaurantId) => {
+export const loadCartView = async (sessionId, viewerId, restaurantId) => {
   const freshSession = await TableSession.findById(sessionId).lean();
   if (!freshSession || freshSession.status !== 'open') {
     return {
