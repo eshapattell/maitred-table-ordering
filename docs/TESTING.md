@@ -476,7 +476,12 @@ Manual checks:
 | QR codes encode CLIENT_URL, which must be the public address before any code is printed | final review (deployment) | pending | open |
 | Guest session reconnection UX: token persistence is in sessionStorage only, so closing the browser tab loses the session and requires re-scanning the QR code | Future enhancement: session recovery token or encrypted cookie | pending | open |
 | Test fixtures must use the exact shapes the server sends (the dish keys are listed in the 10a prompt); invented field names let tests pass while the real screen is wrong | closed by the one fixture helper and the rules test | GuestMenuList.test.jsx and sourceRules.test.js | open for later screens |
-| Placing the order is not built yet (Task 11); the order step must refuse unavailable lines and lines that are not safe for the guest who added them | Task 11 | pending | open |
+| Placing the order is not built yet (Task 11); the order step must refuse unavailable lines and lines that are not safe for the guest who added them | Task 11a: host places order with all-or-nothing transaction, classified by adder's allergies, item availability, and caller status; remaining lines kept; kitchen dish workflow with atomic status transitions | `orderRoutes.test.js`, `kitchenRoutes.test.js`, and `orderRules.test.js` | closed (Task 11a) |
+| Staff kitchen board UI (`/kitchen`) | Frontend kitchen ticket management screen (Task 11b) | pending | open |
+| Sound alerts for new tickets in kitchen | Audio notification on `orders:changed` event for kitchen crew | pending | open |
+| Split bill by dish / itemized payment | Itemized payment workflow and per-item claiming in bill splitting (Task 12) | pending | open |
+| Order status display for diners on mobile | Real-time ticket progression (placed -> preparing -> ready -> served) in guest view (Task 11c) | pending | open |
+| Modifier / special instructions on cart items | Custom cooking notes / ingredient modifications per cart line | Future enhancement | open |
 
 ## Shared Table Cart Screens & Live Updates (Task 10c)
 
@@ -503,7 +508,20 @@ Manual checks:
 5. **Connection Drop & Auto-Recovery**: Stopping the backend shows the reconnecting banner and restarting it brings the cart back by itself.
 6. **Network Protocol Verification**: The browser's Network tab shows a "socket.io" websocket with status 101.
 
+## Orders, Kitchen Workflow & Staff Live Connection (Task 11a)
 
+### Automated Test Coverage
 
-
-
+| Feature / Scenario | Expected Result | Test File | Status |
+| :--- | :--- | :--- | :--- |
+| `Order` Model & Compound Indexes | Enforces sessionId, restaurantId, tableNumber, items array; validates orderItemId UUID, price, qty, status; compound indexes `{ sessionId: 1, status: 1 }` and `{ restaurantId: 1, 'items.status': 1, createdAt: 1 }` | `backend/models/models.test.js` | Passed |
+| Staff Kitchen Live Connection (`registerKitchenSocket`) | Authenticates `/kitchen` namespace using staff JWT; verifies role ('owner', 'kitchen') and restaurantId; joins room `kitchen:<restaurantId>`; rejects missing/guest/waiter tokens; drops oversized frames; receive-only | `backend/sockets/kitchenSocket.test.js` | Passed |
+| Realtime Orders Notification (`realtime.ordersChanged`) | Emits `orders:changed` event to `kitchen:<restaurantId>` room in `/kitchen` namespace; silent no-op when socket uninitialized or room invalid | `backend/utils/realtime.test.js` | Passed |
+| Host Order Placement (`POST /api/sessions/orders`) | All-or-nothing transaction: verifies host role, open session, and expected cartVersion; pulls ready lines and increments cartVersion; creates Order with frozen items and table allergies snapshot; leaves unsuitable/unavailable lines in cart; emits `cartChanged` and `ordersChanged` | `backend/routes/orderRoutes.test.js` | Passed |
+| Host Order Placement Edge Cases & Safety | Refuses placement when caller not host (403), allergies undeclared (403), cartVersion mismatch (409 CART_VERSION_MISMATCH), or all lines unsuitable (400 NO_ORDERABLE_ITEMS); handles concurrent placement races | `backend/routes/orderRoutes.test.js` | Passed |
+| Placed Orders Inquiry (`GET /api/sessions/orders/placed`) | Returns list of items currently in 'placed' status across active orders for this table session; host/guests can monitor dishes awaiting kitchen start | `backend/routes/orderRoutes.test.js` | Passed |
+| Host Item Cancellation (`POST /api/sessions/orders/:orderId/items/:orderItemId/cancel`) | Host cancels item while still in 'placed' status (200, updates status to 'cancelled'); returns 409 ALREADY_STARTED if preparing/ready/served/cancelled; returns 404 for unknown order or other session; emits `ordersChanged` | `backend/routes/orderRoutes.test.js` | Passed |
+| Staff Kitchen Board (`GET /api/orders`) | Returns 200 with active orders sorted by `createdAt` ascending; filters inactive orders (all served/cancelled); strict `kitchenOrderView` shape projection completely stripping price, sessionId, itemId, and phone numbers; cross-tenant isolation | `backend/routes/kitchenRoutes.test.js` | Passed |
+| Staff Item Status Progression (`PATCH /api/orders/:orderId/items/:orderItemId/status`) | Moves item status forward step-by-step (`placed` -> `preparing` -> `ready` -> `served`) or cancels while placed (`placed` -> `cancelled`); re-calculates whole-order derived status; emits `ordersChanged`; both owner and kitchen authorized | `backend/routes/kitchenRoutes.test.js` | Passed |
+| Item Status Transition Constraints | Enforces strict forward movement; rejects backward moves, skips (`placed` -> `ready`/`served`), cancellation after start, and moves out of terminal states with 409 `INVALID_TRANSITION`; rejects unknown status with 400 | `backend/routes/kitchenRoutes.test.js` | Passed |
+| Staff Kitchen Concurrency & Error Paths | Handles concurrent status updates on different items in same order (both 200) and concurrent identical updates on same item (one 200, one 409); returns 404 for non-existent order, missing item, or cross-tenant order | `backend/routes/kitchenRoutes.test.js` | Passed |
