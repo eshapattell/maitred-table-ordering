@@ -85,4 +85,16 @@ describe("ProtectedRoute", () => {
 
     expect(screen.getByText("Universal Staff Content")).toBeInTheDocument();
   });
+
+  test("an owner can access routes allowing ['kitchen', 'owner']", () => {
+    renderWithAuth(
+      { status: "authenticated", user: { role: "owner", name: "Boss" } },
+      "/test",
+      <ProtectedRoute roles={["kitchen", "owner"]}>
+        <div>Kitchen Content</div>
+      </ProtectedRoute>
+    );
+
+    expect(screen.getByText("Kitchen Content")).toBeInTheDocument();
+  });
 });

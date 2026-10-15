@@ -375,12 +375,104 @@ describe('sourceRules (rule 12 safety and architecture checks)', () => {
     expect(normalizedFiles.some((f) => f.endsWith('hooks/useLiveConnection.js')), 'Must include hooks/useLiveConnection.js').toBe(true);
     expect(normalizedFiles.some((f) => f.endsWith('hooks/useCart.js')), 'Must include hooks/useCart.js').toBe(true);
     expect(normalizedFiles.some((f) => f.endsWith('Components/Guest/CartSheet.jsx')), 'Must include Components/Guest/CartSheet.jsx').toBe(true);
+    expect(normalizedFiles.some((f) => f.endsWith('hooks/useKitchenBoard.js')), 'Must include hooks/useKitchenBoard.js').toBe(true);
+    expect(normalizedFiles.some((f) => f.endsWith('Components/Kitchen/OrderTicket.jsx')), 'Must include Components/Kitchen/OrderTicket.jsx').toBe(true);
 
     for (const file of filesToCheck) {
       const content = fs.readFileSync(file, 'utf8');
       const found = checkEmit(content);
       expect(found, `${file} must not contain .emit(`).toEqual([]);
     }
+  });
+
+  test('services/kitchenSocket.js contains no "query" and no "?token"', () => {
+    const FORBIDDEN = ['query', '?token'];
+    const findForbidden = (text) => {
+      if (typeof text !== 'string') return [];
+      return FORBIDDEN.filter((p) => text.includes(p));
+    };
+
+    // Self-checks
+    expect(findForbidden('const url = "/socket.io?token=" + token;')).toEqual(['?token']);
+    expect(findForbidden('io({ query: { token } });')).toEqual(['query']);
+    expect(findForbidden('io({ auth: (cb) => cb({ token }) });')).toEqual([]);
+
+    const kitchenSocketPath = path.join(SRC_DIR, 'services', 'kitchenSocket.js');
+    expect(fs.existsSync(kitchenSocketPath)).toBe(true);
+    const content = fs.readFileSync(kitchenSocketPath, 'utf8');
+    const found = findForbidden(content);
+    expect(found, `services/kitchenSocket.js contains forbidden patterns: ${found.join(', ')}`).toEqual([]);
+  });
+
+  test('the kitchen files never contain the guest token key and the guest files never contain the staff token key', () => {
+    const checkTokenIsolation = (filePath, content) => {
+      const norm = filePath.replace(/\\/g, '/');
+      const violations = [];
+      const hasGuestToken = content.includes('GUEST_TOKEN') || content.includes('maitred.guestToken');
+      const hasStaffToken = content.includes('AUTH_TOKEN') || content.includes('maitred.authToken');
+
+      const isKitchen = norm.toLowerCase().includes('kitchen') || norm.includes('OrderTicket') || norm.includes('orderService');
+      const isGuest = norm.includes('Guest') || norm.includes('ScanLanding') || norm.includes('guestApi') || norm.includes('guestSession') || norm.includes('useCart') || norm.includes('CartSheet') || norm.includes('liveSocket') || norm.includes('useLiveConnection');
+
+      if (isKitchen && hasGuestToken) violations.push('kitchen file contains guest token key');
+      if (isGuest && hasStaffToken) violations.push('guest file contains staff token key');
+      return violations;
+    };
+
+    // Self-checks
+    expect(checkTokenIsolation('src/services/kitchenSocket.js', 'const k = STORAGE_KEYS.GUEST_TOKEN;')).toEqual(['kitchen file contains guest token key']);
+    expect(checkTokenIsolation('src/pages/GuestTable.jsx', 'const k = STORAGE_KEYS.AUTH_TOKEN;')).toEqual(['guest file contains staff token key']);
+    expect(checkTokenIsolation('src/services/kitchenSocket.js', 'const k = STORAGE_KEYS.AUTH_TOKEN;')).toEqual([]);
+    expect(checkTokenIsolation('src/pages/GuestTable.jsx', 'const k = STORAGE_KEYS.GUEST_TOKEN;')).toEqual([]);
+
+    const allSource = getAllSourceFiles(SRC_DIR);
+    for (const file of allSource) {
+      const content = fs.readFileSync(file, 'utf8');
+      const violations = checkTokenIsolation(file, content);
+      expect(violations, `${file} token isolation violation`).toEqual([]);
+    }
+  });
+
+  test('the kitchen files contain no "response?.data?.message", "response.data.message" or "MESSAGES?."', () => {
+    const checkKitchenErrorWording = (filePath, content) => {
+      const norm = filePath.replace(/\\/g, '/');
+      const isKitchen = norm.toLowerCase().includes('kitchen') || norm.includes('OrderTicket') || norm.includes('orderService');
+      if (!isKitchen) return [];
+      const forbidden = ['response?.data?.message', 'response.data.message', 'MESSAGES?.'];
+      return forbidden.filter((p) => content.includes(p));
+    };
+
+    // Self-checks
+    expect(checkKitchenErrorWording('src/pages/KitchenDashboard.jsx', 'const m = err?.response?.data?.message;')).toEqual(['response?.data?.message']);
+    expect(checkKitchenErrorWording('src/pages/KitchenDashboard.jsx', 'const m = err.response.data.message;')).toEqual(['response.data.message']);
+    expect(checkKitchenErrorWording('src/pages/KitchenDashboard.jsx', 'const m = MESSAGES?.kitchen?.title;')).toEqual(['MESSAGES?.']);
+    expect(checkKitchenErrorWording('src/pages/KitchenDashboard.jsx', 'const m = MESSAGES.kitchen.boardTitle;')).toEqual([]);
+    expect(checkKitchenErrorWording('src/pages/GuestTable.jsx', 'const m = err?.response?.data?.message;')).toEqual([]);
+
+    const allSource = getAllSourceFiles(SRC_DIR);
+    for (const file of allSource) {
+      const content = fs.readFileSync(file, 'utf8');
+      const found = checkKitchenErrorWording(file, content);
+      expect(found, `${file} contains forbidden error wording patterns: ${found.join(', ')}`).toEqual([]);
+    }
+  });
+
+  test('scanned files list includes services/kitchenSocket.js, hooks/useKitchenBoard.js and Components/Kitchen/OrderTicket.jsx', () => {
+    const allSource = getAllSourceFiles(SRC_DIR);
+    const normalizedFiles = allSource.map((p) => p.replace(/\\/g, '/'));
+
+    expect(
+      normalizedFiles.some((f) => f.endsWith('services/kitchenSocket.js')),
+      'Scanned list must include services/kitchenSocket.js'
+    ).toBe(true);
+    expect(
+      normalizedFiles.some((f) => f.endsWith('hooks/useKitchenBoard.js')),
+      'Scanned list must include hooks/useKitchenBoard.js'
+    ).toBe(true);
+    expect(
+      normalizedFiles.some((f) => f.endsWith('Components/Kitchen/OrderTicket.jsx')),
+      'Scanned list must include Components/Kitchen/OrderTicket.jsx'
+    ).toBe(true);
   });
 });
 

@@ -1,10 +1,19 @@
 import React from "react";
 import { describe, test, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { AuthContext } from "../context/AuthContext.jsx";
 import AppRoutes from "./index.jsx";
 import { MESSAGES } from "../utils/messages.js";
+
+vi.mock("../services/orderService.js", () => ({
+  fetchActiveOrders: vi.fn().mockResolvedValue([]),
+  updateDishStatus: vi.fn(),
+}));
+
+vi.mock("../services/kitchenSocket.js", () => ({
+  connectKitchen: vi.fn(() => null),
+}));
 
 const renderWithRoutes = (authValue, initialEntry = "/") => {
   const fullAuth = {
@@ -45,8 +54,9 @@ describe("AppRoutes configuration and navigation switchboard", () => {
       "/owner/menu"
     );
 
-    expect(screen.getByRole("heading", { name: MESSAGES.nav.kitchen })).toBeInTheDocument();
-    expect(screen.getByText(MESSAGES.common.comingSoon)).toBeInTheDocument();
+    return waitFor(() => {
+      expect(screen.getByRole("heading", { name: MESSAGES.nav.kitchen })).toBeInTheDocument();
+    });
   });
 
   test("an authenticated user at '/login' is redirected home (owner to /owner/menu)", () => {
@@ -70,5 +80,22 @@ describe("AppRoutes configuration and navigation switchboard", () => {
 
     expect(screen.getByRole("status")).toBeInTheDocument();
     expect(screen.getByText(MESSAGES.common.loading)).toBeInTheDocument();
+  });
+
+  test("the owner can open /kitchen", async () => {
+    renderWithRoutes(
+      { status: "authenticated", user: { id: "u1", name: "Ravi", role: "owner" } },
+      "/kitchen"
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: MESSAGES.kitchen.boardTitle })).toBeInTheDocument();
+    });
+  });
+
+  test("a signed-out visitor is sent to login when accessing /kitchen", () => {
+    renderWithRoutes({ status: "anonymous", user: null }, "/kitchen");
+
+    expect(screen.getByText(MESSAGES.auth.title)).toBeInTheDocument();
   });
 });

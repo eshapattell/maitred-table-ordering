@@ -47,7 +47,7 @@ describe("Navbar component", () => {
     expect(menuLink).toHaveAttribute("href", ROUTE_PATHS.OWNER_MENU);
     expect(tablesLink).toHaveAttribute("href", ROUTE_PATHS.OWNER_TABLES);
 
-    expect(screen.queryByRole("link", { name: MESSAGES.nav.kitchen })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: MESSAGES.nav.kitchen })).toHaveAttribute("href", ROUTE_PATHS.KITCHEN);
     expect(screen.getByRole("button", { name: MESSAGES.auth.signOut })).toBeInTheDocument();
   });
 
@@ -132,6 +132,45 @@ describe("Navbar component", () => {
     const brandLink = screen.getByRole("link", { name: APP_NAME });
     expect(brandLink).toBeInTheDocument();
     expect(brandLink).toHaveAttribute("href", ROUTE_PATHS.HOME);
+  });
+
+  test("the owner sees the Kitchen link", () => {
+    renderNavbar({
+      status: "authenticated",
+      user: { id: "u1", name: "Ravi Kumar", role: "owner" },
+      logout: vi.fn(),
+    });
+
+    const kitchenLink = screen.getByRole("link", { name: MESSAGES.nav.kitchen });
+    expect(kitchenLink).toBeInTheDocument();
+    expect(kitchenLink).toHaveAttribute("href", ROUTE_PATHS.KITCHEN);
+  });
+
+  test("a kitchen user does not see the owner links", () => {
+    renderNavbar({
+      status: "authenticated",
+      user: { id: "u2", name: "Chef Anita", role: "kitchen" },
+      logout: vi.fn(),
+    });
+
+    expect(screen.queryByRole("link", { name: MESSAGES.nav.menu })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: MESSAGES.nav.tables })).not.toBeInTheDocument();
+  });
+
+  test("a guest page shows none of the staff links", () => {
+    renderNavbar(
+      {
+        status: "authenticated",
+        user: { id: "u1", name: "Ravi Kumar", role: "owner" },
+        logout: vi.fn(),
+      },
+      ["/r/rest-1/table/4"]
+    );
+
+    expect(screen.queryByRole("link", { name: MESSAGES.nav.menu })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: MESSAGES.nav.tables })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: MESSAGES.nav.kitchen })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: MESSAGES.auth.signOut })).not.toBeInTheDocument();
   });
 });
 

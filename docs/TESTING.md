@@ -476,9 +476,9 @@ Manual checks:
 | QR codes encode CLIENT_URL, which must be the public address before any code is printed | final review (deployment) | pending | open |
 | Guest session reconnection UX: token persistence is in sessionStorage only, so closing the browser tab loses the session and requires re-scanning the QR code | Future enhancement: session recovery token or encrypted cookie | pending | open |
 | Test fixtures must use the exact shapes the server sends (the dish keys are listed in the 10a prompt); invented field names let tests pass while the real screen is wrong | closed by the one fixture helper and the rules test | GuestMenuList.test.jsx and sourceRules.test.js | open for later screens |
-| Placing the order is not built yet (Task 11); the order step must refuse unavailable lines and lines that are not safe for the guest who added them | Task 11a: host places order with all-or-nothing transaction, classified by adder's allergies, item availability, and caller status; remaining lines kept; kitchen dish workflow with atomic status transitions | `orderRoutes.test.js`, `kitchenRoutes.test.js`, and `orderRules.test.js` | closed (Task 11a) |
-| Staff kitchen board UI (`/kitchen`) | Frontend kitchen ticket management screen (Task 11b) | pending | open |
-| Sound alerts for new tickets in kitchen | Audio notification on `orders:changed` event for kitchen crew | pending | open |
+| Staff kitchen board UI (`/kitchen`) | Frontend live kitchen board with dish status buttons, allergy banner, and responsive grid (Task 11b) | `KitchenDashboard.test.jsx`, `OrderTicket.test.jsx`, `useKitchenBoard.test.jsx` | closed (Task 11b) |
+| Kitchen board shows only active orders; there is no history screen yet | later | pending | open |
+| The kitchen does not hear a sound or alert for a new order | later | pending | open |
 | Split bill by dish / itemized payment | Itemized payment workflow and per-item claiming in bill splitting (Task 12) | pending | open |
 | Order status display for diners on mobile | Real-time ticket progression (placed -> preparing -> ready -> served) in guest view (Task 11c) | pending | open |
 | Modifier / special instructions on cart items | Custom cooking notes / ingredient modifications per cart line | Future enhancement | open |
@@ -525,3 +525,30 @@ Manual checks:
 | Staff Item Status Progression (`PATCH /api/orders/:orderId/items/:orderItemId/status`) | Moves item status forward step-by-step (`placed` -> `preparing` -> `ready` -> `served`) or cancels while placed (`placed` -> `cancelled`); re-calculates whole-order derived status; emits `ordersChanged`; both owner and kitchen authorized | `backend/routes/kitchenRoutes.test.js` | Passed |
 | Item Status Transition Constraints | Enforces strict forward movement; rejects backward moves, skips (`placed` -> `ready`/`served`), cancellation after start, and moves out of terminal states with 409 `INVALID_TRANSITION`; rejects unknown status with 400 | `backend/routes/kitchenRoutes.test.js` | Passed |
 | Staff Kitchen Concurrency & Error Paths | Handles concurrent status updates on different items in same order (both 200) and concurrent identical updates on same item (one 200, one 409); returns 404 for non-existent order, missing item, or cross-tenant order | `backend/routes/kitchenRoutes.test.js` | Passed |
+
+## Live Kitchen Board & Dish Status Progression (Task 11b)
+
+### Automated Test Coverage
+
+| Feature / Scenario | Expected Result | Test File | Status |
+| :--- | :--- | :--- | :--- |
+| Staff Auth Token Accessor (`api.js`) | Exported `readAuthToken()` returns staff token from sessionStorage | `frontend/src/services/api.test.js` | Passed |
+| Kitchen Orders API Service (`orderService.js`) | `fetchActiveOrders()` (`GET /orders`) and `updateDishStatus()` (`PATCH /orders/:orderId/items/:orderItemId/status`) with URL-encoded IDs and error status propagation | `frontend/src/services/orderService.test.js` | Passed |
+| Time Formatter (`formatters.js`) | `formatClock(isoString)` returns formatted 12-hour time in en-IN locale ("7:42 pm") and empty string for invalid dates | `frontend/src/utils/formatters.test.js` | Passed |
+| Kitchen Live Socket (`kitchenSocket.js`) | `connectKitchen()` connects to `/kitchen` namespace, sends staff token in auth callback, websocket/polling transports, no token in URL/query, returns null without token | `frontend/src/services/kitchenSocket.test.js` | Passed |
+| Kitchen Live Connection Hook (`useKitchenLive.js`) | Receive-only listener for `orders:changed`, updates liveState (connecting/live/reconnecting), refetches on connect/error/ping, never emits, disconnects on unmount | `frontend/src/hooks/useKitchenLive.test.jsx` | Passed |
+| Kitchen Board Management Hook (`useKitchenBoard.js`) | Manages ticket list, sequence-numbered fetches, request coalescing, dish movement, busy key tracking, ticket removal on complete, safety-net polling (30s live, 5s fallback), focus/online/visibility listeners | `frontend/src/hooks/useKitchenBoard.test.jsx` | Passed |
+| Order Ticket Component (`OrderTicket.jsx`) | Card header with table heading, placedAt time line, ticket status chip; allergy banner (`role="note"`) only when table has allergies; open dishes with quantity, orderedBy, contains tags, status chip, Start/Mark ready/Mark served buttons and Cancel dish; busy key disabling; quiet finished dishes section | `frontend/src/Components/Kitchen/OrderTicket.test.jsx` | Passed |
+| Live Kitchen Board Page (`KitchenDashboard.jsx`) | Responsive grid (1 col mobile, 2 col tablet, 3 col desktop), 30s timer for relative minutes, live status chip (`role="status"`), loader and empty states, error banner with retry, cancel confirmation modal with autofocus on "Keep dish", live updates via socket | `frontend/src/pages/KitchenDashboard.test.jsx` | Passed |
+| Routing & Navigation (`AppRoutes`, `Navbar.jsx`) | `/kitchen` accessible by both kitchen and owner roles; owner sees Kitchen link in Navbar next to Menu and Tables; kitchen role does not see owner links; guest pages show no staff links; signed-out visitors redirected to login | `frontend/src/Components/Common/Navbar.test.jsx`, `frontend/src/routes/index.test.jsx`, `frontend/src/routes/ProtectedRoute.test.jsx` | Passed |
+| Source Rules Architecture Verification (`sourceRules.test.js`) | Rule 12 verification: only liveSocket and kitchenSocket import socket.io-client; no query token; no .emit; token isolation (kitchen has no guest token, guest has no staff token); no raw error message leaking; scanned list includes kitchenSocket, useKitchenBoard, OrderTicket | `frontend/src/utils/sourceRules.test.js` | Passed |
+
+### Manual Verification Checklist
+1. **Sign in as Kitchen User**: Sign in as the kitchen staff account and automatically land on `/kitchen`.
+2. **Real-time Ticket Arrival**: Place an order from a guest table; the ticket appears on the kitchen board without refreshing the page, displaying the allergy banner when someone at the table declared allergies.
+3. **Dish Status Progression & Ticket Removal**: Click Start, then Mark ready, then Mark served; the dish moves through each status and the ticket leaves the board after the last dish is served.
+4. **Dish Cancellation with Confirmation**: Cancel appears only on a waiting (placed) dish; clicking Cancel opens the confirmation dialog with initial focus on "Keep dish"; confirming cancels the dish.
+5. **Multi-Window Live Sync**: Open a second staff window; status movements and new orders in one window update the other window live.
+6. **Connection Loss & Auto-Recovery**: Stopping the backend displays the "Reconnecting" status chip; restarting the backend reconnects the live socket and brings the active board back automatically.
+7. **Owner Navigation & Access**: Sign in as the owner; the Navbar displays the "Kitchen" link alongside "Menu" and "Tables"; the owner can view and manage `/kitchen`, and the owner's menu and tables pages continue to work normally.
+

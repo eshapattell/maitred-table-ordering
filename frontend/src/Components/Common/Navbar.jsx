@@ -47,6 +47,14 @@ export const Navbar = () => {
                   >
                     {MESSAGES.nav.tables}
                   </NavLink>
+                  <NavLink
+                    to={ROUTE_PATHS.KITCHEN}
+                    className={({ isActive }) =>
+                      `navbar-link ${isActive ? "navbar-link--active" : ""}`
+                    }
+                  >
+                    {MESSAGES.nav.kitchen}
+                  </NavLink>
                 </>
               )}
               {user.role === "kitchen" && (
