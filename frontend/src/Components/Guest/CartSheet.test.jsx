@@ -179,11 +179,11 @@ describe('CartSheet', () => {
 
   it('10. the notes appear: cartHiddenNote when hasHiddenLines, cartSharedNote, and cartPlaceholder', () => {
     const cart = viewFor(HOST);
-    render(<CartSheet cart={cart} viewerId="h1" />);
+    render(<CartSheet cart={cart} viewerId="h1" viewer={HOST} />);
 
     expect(screen.getByText(MESSAGES.guest.cartHiddenNote)).toBeInTheDocument();
     expect(screen.getByText(MESSAGES.guest.cartSharedNote)).toBeInTheDocument();
-    expect(screen.getByText(MESSAGES.guest.cartPlaceholder)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: MESSAGES.guest.placeOrder })).toBeInTheDocument();
   });
 
   it('11. the buttons are disabled while busy is true', () => {
@@ -236,5 +236,163 @@ describe('CartSheet', () => {
     render(<CartSheet cart={null} viewerId="h1" error="Failed to update cart" />);
 
     expect(screen.getByText('Failed to update cart')).toBeInTheDocument();
+  });
+
+  it('14. the host sees Place order and a guest sees the host note and no button', () => {
+    const cart = viewFor(HOST);
+    const { rerender } = render(<CartSheet cart={cart} viewer={HOST} />);
+
+    expect(screen.getByRole('button', { name: MESSAGES.guest.placeOrder })).toBeInTheDocument();
+    expect(screen.queryByText(MESSAGES.guest.hostNote)).not.toBeInTheDocument();
+
+    rerender(<CartSheet cart={cart} viewer={GUEST} />);
+    expect(screen.getByText(MESSAGES.guest.hostNote)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: MESSAGES.guest.placeOrder })).not.toBeInTheDocument();
+  });
+
+  it('15. an empty cart gives no button', () => {
+    render(<CartSheet cart={{ lines: [], version: 1 }} viewer={HOST} />);
+    expect(screen.queryByRole('button', { name: MESSAGES.guest.placeOrder })).not.toBeInTheDocument();
+  });
+
+  it('16. a click calls onPlaceOrder once', () => {
+    const cart = viewFor(HOST);
+    const onPlaceOrder = vi.fn();
+    render(<CartSheet cart={cart} viewer={HOST} onPlaceOrder={onPlaceOrder} />);
+
+    const btn = screen.getByRole('button', { name: MESSAGES.guest.placeOrder });
+    fireEvent.click(btn);
+    expect(onPlaceOrder).toHaveBeenCalledTimes(1);
+  });
+
+  it('17. disabled while placing', () => {
+    const cart = viewFor(HOST);
+    const onPlaceOrder = vi.fn();
+    render(<CartSheet cart={cart} viewer={HOST} placing={true} onPlaceOrder={onPlaceOrder} />);
+
+    const btn = screen.getByRole('button', { name: MESSAGES.guest.placingOrder });
+    expect(btn).toBeDisabled();
+    fireEvent.click(btn);
+    expect(onPlaceOrder).not.toHaveBeenCalled();
+  });
+
+  it('18. disabled while busy', () => {
+    const cart = viewFor(HOST);
+    const onPlaceOrder = vi.fn();
+    render(<CartSheet cart={cart} viewer={HOST} busy={true} onPlaceOrder={onPlaceOrder} />);
+
+    const btn = screen.getByRole('button', { name: MESSAGES.guest.placeOrder });
+    expect(btn).toBeDisabled();
+    fireEvent.click(btn);
+    expect(onPlaceOrder).not.toHaveBeenCalled();
+  });
+
+  it('19. the message and the error appear', () => {
+    const cart = viewFor(HOST);
+    render(
+      <CartSheet
+        cart={cart}
+        viewer={HOST}
+        orderMessage="Order placed: 2 dishes sent to the kitchen."
+        orderError="Nothing in the cart can be ordered right now"
+      />
+    );
+
+    const msg = screen.getByRole('status');
+    expect(msg).toHaveTextContent('Order placed: 2 dishes sent to the kitchen.');
+    expect(screen.getByText('Nothing in the cart can be ordered right now')).toBeInTheDocument();
+  });
+
+  it('20. the placed list appears only for the host and only when there are rows', () => {
+    const sampleRows = [
+      { orderId: 'd'.repeat(24), orderItemId: '00000000-0000-4000-8000-000000000001', name: 'Tomato Soup', qty: 2, orderedBy: 'Hema' },
+    ];
+
+    // Guest sees no placed list even if rows provided
+    const { rerender } = render(<CartSheet cart={null} viewer={GUEST} placedRows={sampleRows} />);
+    expect(screen.queryByText(MESSAGES.guest.placedHeading)).not.toBeInTheDocument();
+
+    // Host with empty rows sees no placed list
+    rerender(<CartSheet cart={null} viewer={HOST} placedRows={[]} />);
+    expect(screen.queryByText(MESSAGES.guest.placedHeading)).not.toBeInTheDocument();
+
+    // Host with rows sees placed list
+    rerender(<CartSheet cart={null} viewer={HOST} placedRows={sampleRows} />);
+    expect(screen.getByText(MESSAGES.guest.placedHeading)).toBeInTheDocument();
+    expect(screen.getByText(MESSAGES.guest.placedHint)).toBeInTheDocument();
+    expect(screen.getByText(MESSAGES.guest.placedLine(2, 'Tomato Soup'))).toBeInTheDocument();
+    expect(screen.getByText(MESSAGES.guest.placedBy('Hema'))).toBeInTheDocument();
+  });
+
+  it('21. the inline cancel flow (ask, keep, confirm)', () => {
+    const sampleRows = [
+      { orderId: 'd'.repeat(24), orderItemId: '00000000-0000-4000-8000-000000000001', name: 'Tomato Soup', qty: 2, orderedBy: 'Hema' },
+    ];
+    const onCancelPlaced = vi.fn();
+
+    render(<CartSheet cart={null} viewer={HOST} placedRows={sampleRows} onCancelPlaced={onCancelPlaced} />);
+
+    // Initially shows cancel button
+    const cancelBtn = screen.getByRole('button', { name: MESSAGES.guest.cancelPlacedAria('Tomato Soup') });
+    expect(cancelBtn).toBeInTheDocument();
+
+    // Click Cancel -> turns into inline confirmation with cancelAsk and two buttons
+    fireEvent.click(cancelBtn);
+    expect(screen.getByText(MESSAGES.guest.cancelAsk('Tomato Soup'))).toBeInTheDocument();
+
+    const noBtn = screen.getByRole('button', { name: MESSAGES.guest.cancelNo });
+    const yesBtn = screen.getByRole('button', { name: MESSAGES.guest.cancelYes });
+    expect(noBtn).toBeInTheDocument();
+    expect(yesBtn).toBeInTheDocument();
+
+    // cancelNo puts the row back
+    fireEvent.click(noBtn);
+    expect(screen.queryByText(MESSAGES.guest.cancelAsk('Tomato Soup'))).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: MESSAGES.guest.cancelPlacedAria('Tomato Soup') })).toBeInTheDocument();
+    expect(onCancelPlaced).not.toHaveBeenCalled();
+
+    // Click cancel again, then cancelYes calls onCancelPlaced
+    fireEvent.click(screen.getByRole('button', { name: MESSAGES.guest.cancelPlacedAria('Tomato Soup') }));
+    fireEvent.click(screen.getByRole('button', { name: MESSAGES.guest.cancelYes }));
+    expect(onCancelPlaced).toHaveBeenCalledTimes(1);
+    expect(onCancelPlaced).toHaveBeenCalledWith(sampleRows[0]);
+  });
+
+  it('22. a row\'s buttons are disabled while it is being cancelled', () => {
+    const rowKey = `${'d'.repeat(24)}:00000000-0000-4000-8000-000000000001`;
+    const sampleRows = [
+      { orderId: 'd'.repeat(24), orderItemId: '00000000-0000-4000-8000-000000000001', name: 'Tomato Soup', qty: 2, orderedBy: 'Hema' },
+    ];
+
+    const { rerender } = render(
+      <CartSheet cart={null} viewer={HOST} placedRows={sampleRows} cancelKey={rowKey} />
+    );
+
+    const cancelBtn = screen.getByRole('button', { name: MESSAGES.guest.cancelPlacedAria('Tomato Soup') });
+    expect(cancelBtn).toBeDisabled();
+
+    // If already in confirming state, confirmation buttons are disabled
+    rerender(
+      <CartSheet cart={null} viewer={HOST} placedRows={sampleRows} cancelKey={null} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: MESSAGES.guest.cancelPlacedAria('Tomato Soup') }));
+
+    rerender(
+      <CartSheet cart={null} viewer={HOST} placedRows={sampleRows} cancelKey={rowKey} />
+    );
+    expect(screen.getByRole('button', { name: MESSAGES.guest.cancelYes })).toBeDisabled();
+    expect(screen.getByRole('button', { name: MESSAGES.guest.cancelNo })).toBeDisabled();
+  });
+
+  it('23. the old placeholder sentence never appears', () => {
+    const cart = viewFor(HOST);
+    const { rerender } = render(<CartSheet cart={cart} viewer={HOST} />);
+    expect(screen.queryByText(MESSAGES.guest.cartPlaceholder)).not.toBeInTheDocument();
+
+    rerender(<CartSheet cart={cart} viewer={GUEST} />);
+    expect(screen.queryByText(MESSAGES.guest.cartPlaceholder)).not.toBeInTheDocument();
+
+    rerender(<CartSheet cart={null} viewer={HOST} />);
+    expect(screen.queryByText(MESSAGES.guest.cartPlaceholder)).not.toBeInTheDocument();
   });
 });

@@ -56,6 +56,12 @@ vi.mock('../services/guestService.js', () => ({
   clearGuestToken: vi.fn(),
 }));
 
+vi.mock('../services/guestOrderService.js', () => ({
+  fetchPlacedItems: vi.fn().mockResolvedValue([]),
+  placeOrder: vi.fn(),
+  cancelPlacedItem: vi.fn(),
+}));
+
 vi.mock('../hooks/useCart.js', () => ({
   useCart: () => ({
     cart: null,

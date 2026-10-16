@@ -11,6 +11,7 @@ import CartBar from '../Components/Guest/CartBar.jsx';
 import CartSheet from '../Components/Guest/CartSheet.jsx';
 import { useGuestTable } from '../hooks/useGuestTable.js';
 import { useCart } from '../hooks/useCart.js';
+import { useHostOrders } from '../hooks/useHostOrders.js';
 import { useLiveConnection } from '../hooks/useLiveConnection.js';
 import { pollIntervalFor, cartSummary } from '../utils/guestCart.js';
 import {
@@ -60,6 +61,26 @@ export const GuestTable = () => {
     onCartChanged: cart.refresh,
     onLiveChange: setLiveFlag,
   });
+
+  const orders = useHostOrders({
+    enabled: onMenu && isHost(data?.me),
+    onCartApplied: cart.applyCart,
+    onStale: cart.refresh,
+  });
+
+  const prevCartVersionRef = useRef(cart.cart?.version);
+  useEffect(() => {
+    if (isCartModalOpen && isHost(data?.me)) {
+      if (
+        prevCartVersionRef.current !== undefined &&
+        cart.cart?.version !== undefined &&
+        cart.cart.version !== prevCartVersionRef.current
+      ) {
+        orders.loadPlaced();
+      }
+    }
+    prevCartVersionRef.current = cart.cart?.version;
+  }, [isCartModalOpen, data?.me, cart.cart?.version, orders.loadPlaced]);
 
   const prevDataRef = useRef(table.data);
   useEffect(() => {
@@ -182,6 +203,16 @@ export const GuestTable = () => {
     }
   };
 
+  const handleOpenCart = () => {
+    setIsCartModalOpen(true);
+    orders.loadPlaced();
+  };
+
+  const handleCloseCart = () => {
+    setIsCartModalOpen(false);
+    orders.dismiss();
+  };
+
   const tableHeading =
     data?.session?.tableNumber != null
       ? MESSAGES.guest.tableHeading(data.session.tableNumber)
@@ -270,22 +301,35 @@ export const GuestTable = () => {
                 />
                 <CartBar
                   summary={cartSummary(cart.cart)}
-                  onOpen={() => setIsCartModalOpen(true)}
+                  onOpen={handleOpenCart}
                 />
                 {isCartModalOpen && (
                   <Modal
                     title={MESSAGES.guest.cartTitle}
-                    onClose={() => setIsCartModalOpen(false)}
+                    onClose={handleCloseCart}
                     busy={cart.busy}
                   >
                     <CartSheet
                       cart={cart.cart}
                       viewerId={data?.me?.id}
+                      viewer={data?.me}
                       busy={cart.busy}
                       error={cart.error}
+                      placing={orders.placing}
+                      orderMessage={orders.message}
+                      orderError={orders.error}
+                      placedRows={orders.rows}
+                      cancelKey={orders.cancelKey}
                       onAdd={(line) => cart.add(line.menuItemId)}
                       onDecrease={(line) => cart.decrease(line.id)}
                       onRemove={(line) => cart.remove(line.id)}
+                      onPlaceOrder={() => {
+                        const v = cart.cart?.version;
+                        if (Number.isInteger(v)) {
+                          orders.place(v);
+                        }
+                      }}
+                      onCancelPlaced={orders.cancel}
                     />
                   </Modal>
                 )}

@@ -552,3 +552,32 @@ Manual checks:
 6. **Connection Loss & Auto-Recovery**: Stopping the backend displays the "Reconnecting" status chip; restarting the backend reconnects the live socket and brings the active board back automatically.
 7. **Owner Navigation & Access**: Sign in as the owner; the Navbar displays the "Kitchen" link alongside "Menu" and "Tables"; the owner can view and manage `/kitchen`, and the owner's menu and tables pages continue to work normally.
 
+## Host Place Order, Sent-to-Kitchen Dishes & Cancellation (Task 11d)
+
+### Automated Test Coverage
+
+| Feature / Scenario | Expected Result | Test File | Status |
+| :--- | :--- | :--- | :--- |
+| Guest Order Service (`guestOrderService.js`) | `placeOrder(expectedVersion)`, `fetchPlacedItems()`, and `cancelPlacedItem(orderId, orderItemId)` with URL-encoded parameters and error propagation | `frontend/src/services/guestOrderService.test.js` | Passed |
+| Cart Incoming Application (`useCart.js`) | Exposed `applyCart(cart)` updates cart state immediately without network refetch | `frontend/src/hooks/useCart.test.jsx` | Passed |
+| Host Orders Hook (`useHostOrders.js`) | Coordinates order placement with expectedVersion, fetch/cancel placed items, safe error message translation, dismissal on modal close, auto-reload on cart apply/stale/mount | `frontend/src/hooks/useHostOrders.test.jsx` | Passed |
+| Cart Sheet Host Placement & Placed Dishes (`CartSheet.jsx`) | Host sees full-width primary Place order button; non-host sees "The host places the order." note; empty cart shows no button; status message and error banner; placed list for host only with line quantity, orderedBy and ghost Cancel button; inline confirmation (ask, keep, confirm) with autofocus on "Keep it" | `frontend/src/Components/Guest/CartSheet.test.jsx` | Passed |
+| Guest Table Integration (`GuestTable.jsx`, `GuestTableOrder.test.jsx`) | Host places order with exact cart version; cart empties on success and placed list loads; CART_CHANGED and NOTHING_TO_ORDER show calm messages and refetch cart; double-click sends one request; 403 and network errors handled; inline cancel flow with ALREADY_STARTED detection; live socket cart pings reload placed list | `frontend/src/pages/GuestTableOrder.test.jsx` | Passed |
+| Regression Protection (`GuestTable.test.jsx`, `GuestTableScreens.test.jsx`) | Preserves all existing cart and session screen tests with non-intrusive service mock | `frontend/src/pages/GuestTable.test.jsx`, `frontend/src/pages/GuestTableScreens.test.jsx` | Passed |
+| Architecture & Rule 12 Scans (`sourceRules.test.js`) | Scanned files list includes `guestOrderService.js` and `useHostOrders.js`; no raw server error text leaking; no staff token keys in guest order files; `cartPlaceholder` unused in all components | `frontend/src/utils/sourceRules.test.js` | Passed |
+
+### Manual Verification Checklist
+1. **Host vs Guest View in Shared Order**: Open two browser windows at the same table session. The first guest (host) sees the "Place order" button in the order sheet. The second guest sees the quiet note "The host places the order." with no button.
+2. **Multi-window Live Ordering to Kitchen Board**: Add dishes in both guest windows. In a third window, open the kitchen board (`/kitchen`) as a kitchen user. When the host taps "Place order", the ticket appears on the kitchen board without refreshing, displaying the allergy banner when someone at the table has an allergy.
+3. **Cart Empties in Both Windows**: Placing the order empties the table order in both guest windows in real time.
+4. **Ordering Dishes Unsafe for Other Guests**: A dish that is safe for the guest who added it but unsafe for another guest at the table is successfully sent to the kitchen.
+5. **Hiding a Dish Leaves Unavailable Line in Cart**: If the restaurant owner hides a dish from the menu after it was added to the cart, that line remains in the cart after placing, and the host's placement message identifies it as unavailable.
+6. **Sent-to-Kitchen List & Inline Cancellation**: The host's order sheet displays the "Sent to the kitchen" list. Clicking "Cancel" on a dish asks for confirmation ("Cancel [Dish]?", "Yes, cancel", "Keep it"). Clicking "Keep it" dismisses the prompt without cancelling. Confirming with "Yes, cancel" cancels the dish and refreshes the list.
+7. **Kitchen Already Started Protection**: After the kitchen presses Start on a dish, Cancel for it answers "The kitchen has already started this dish".
+8. **Double-Tap Protection**: Pressing "Place order" twice quickly sends one order.
+
+### Known Gaps
+| Description | Type | Status |
+| :--- | :--- | :--- |
+| Guests have no order-status screen by design | by design | open |
+| A cart line left behind after Place order stays until someone removes it | by design | open |

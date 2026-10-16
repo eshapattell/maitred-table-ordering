@@ -1,24 +1,45 @@
-import React from 'react';
+import React, { useState } from 'react';
 import ErrorMessage from '../Common/ErrorMessage.jsx';
 import Button from '../Common/Button.jsx';
 import { MESSAGES } from '../../utils/messages.js';
 import { formatPrice } from '../../utils/formatters.js';
 import { groupLinesByAdder, lineActions, lineWarning } from '../../utils/guestCart.js';
+import { canPlaceOrder } from '../../utils/guestOrder.js';
+import { isHost } from '../../utils/guestSession.js';
 
 export const CartSheet = ({
   cart,
   viewerId,
+  viewer,
   busy = false,
   error = null,
+  placing = false,
+  orderMessage = null,
+  orderError = null,
+  placedRows = [],
+  cancelKey = null,
   onAdd,
   onDecrease,
   onRemove,
+  onPlaceOrder,
+  onCancelPlaced,
 }) => {
+  const [confirmingRowKey, setConfirmingRowKey] = useState(null);
+
+  const effectiveViewer = viewer || (viewerId ? { id: viewerId } : null);
+  const effectiveViewerId = effectiveViewer?.id || viewerId;
   const hasLines = Array.isArray(cart?.lines) && cart.lines.length > 0;
+  const viewerIsHost = isHost(effectiveViewer);
 
   return (
     <div className="cart-sheet">
       {error && <ErrorMessage>{error}</ErrorMessage>}
+      {orderError && <ErrorMessage>{orderError}</ErrorMessage>}
+      {orderMessage && (
+        <p className="cart-sheet__order-message" role="status">
+          {orderMessage}
+        </p>
+      )}
 
       {!hasLines ? (
         <p className="cart-sheet__empty">{MESSAGES.guest.cartEmpty}</p>
@@ -26,7 +47,7 @@ export const CartSheet = ({
         <>
           <div className="cart-sheet__groups">
             {groupLinesByAdder(cart).map((group) => {
-              const isViewer = group.adder?.id === viewerId;
+              const isViewer = group.adder?.id === effectiveViewerId;
               const heading = isViewer
                 ? MESSAGES.guest.cartAddedByYou
                 : MESSAGES.guest.cartAddedBy(group.adder?.nickname);
@@ -40,7 +61,7 @@ export const CartSheet = ({
                       const isWarn =
                         (line.unavailable === true || line.safeForYou !== true) &&
                         line.isSurprise !== true;
-                      const actions = lineActions(line, viewerId);
+                      const actions = lineActions(line, effectiveViewerId);
 
                       return (
                         <div
@@ -118,9 +139,91 @@ export const CartSheet = ({
               <p className="cart-sheet__hidden-note">{MESSAGES.guest.cartHiddenNote}</p>
             )}
             <p className="cart-sheet__shared-note">{MESSAGES.guest.cartSharedNote}</p>
-            <p className="cart-sheet__placeholder">{MESSAGES.guest.cartPlaceholder}</p>
+
+            {canPlaceOrder({ cart, viewer: effectiveViewer }) ? (
+              <Button
+                variant="primary"
+                className="cart-sheet__place-btn"
+                disabled={placing || busy}
+                onClick={onPlaceOrder}
+              >
+                {placing ? MESSAGES.guest.placingOrder : MESSAGES.guest.placeOrder}
+              </Button>
+            ) : !viewerIsHost ? (
+              <p className="cart-sheet__host-note">{MESSAGES.guest.hostNote}</p>
+            ) : null}
           </div>
         </>
+      )}
+
+      {viewerIsHost && Array.isArray(placedRows) && placedRows.length > 0 && (
+        <section className="cart-sheet__placed-section">
+          <h2 className="cart-sheet__placed-heading">{MESSAGES.guest.placedHeading}</h2>
+          <p className="cart-sheet__placed-hint">{MESSAGES.guest.placedHint}</p>
+          <div className="cart-sheet__placed-list">
+            {placedRows.map((row) => {
+              const rowKey = `${row.orderId}:${row.orderItemId}`;
+              const isConfirming = confirmingRowKey === rowKey;
+              const isCancelling = cancelKey === rowKey;
+
+              return (
+                <div key={rowKey} className="cart-placed-row">
+                  {isConfirming ? (
+                    <div className="cart-placed-row__confirm">
+                      <span className="cart-placed-row__ask">
+                        {MESSAGES.guest.cancelAsk(row.name)}
+                      </span>
+                      <div className="cart-placed-row__confirm-actions">
+                        <Button
+                          variant="ghost"
+                          className="cart-placed-row__yes-btn"
+                          disabled={isCancelling}
+                          onClick={() => {
+                            setConfirmingRowKey(null);
+                            onCancelPlaced?.(row);
+                          }}
+                        >
+                          {MESSAGES.guest.cancelYes}
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          className="cart-placed-row__no-btn"
+                          disabled={isCancelling}
+                          autoFocus
+                          onClick={() => setConfirmingRowKey(null)}
+                        >
+                          {MESSAGES.guest.cancelNo}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="cart-placed-row__content">
+                      <div className="cart-placed-row__info">
+                        <span className="cart-placed-row__line">
+                          {MESSAGES.guest.placedLine(row.qty, row.name)}
+                        </span>
+                        {row.orderedBy && (
+                          <span className="cart-placed-row__ordered-by">
+                            {MESSAGES.guest.placedBy(row.orderedBy)}
+                          </span>
+                        )}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        className="cart-placed-row__cancel-btn"
+                        disabled={isCancelling}
+                        aria-label={MESSAGES.guest.cancelPlacedAria(row.name)}
+                        onClick={() => setConfirmingRowKey(rowKey)}
+                      >
+                        {MESSAGES.guest.cancelPlaced}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
       )}
     </div>
   );

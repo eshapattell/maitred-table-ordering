@@ -474,5 +474,94 @@ describe('sourceRules (rule 12 safety and architecture checks)', () => {
       'Scanned list must include Components/Kitchen/OrderTicket.jsx'
     ).toBe(true);
   });
+
+  test('scanned files list includes services/guestOrderService.js and hooks/useHostOrders.js', () => {
+    const checkScannedList = (files, requiredFiles) => {
+      const normalized = files.map((f) => f.replace(/\\/g, '/'));
+      return requiredFiles.filter((req) => !normalized.some((f) => f.endsWith(req)));
+    };
+
+    // Self-checks
+    expect(checkScannedList(['a/b/c.js'], ['b/c.js'])).toEqual([]);
+    expect(checkScannedList(['a/b/c.js'], ['missing.js'])).toEqual(['missing.js']);
+
+    const allSource = getAllSourceFiles(SRC_DIR);
+    const missing = checkScannedList(allSource, [
+      'services/guestOrderService.js',
+      'hooks/useHostOrders.js',
+    ]);
+    expect(missing, `Missing files in scanned list: ${missing.join(', ')}`).toEqual([]);
+  });
+
+  test('services/guestOrderService.js and hooks/useHostOrders.js contain no "response?.data?.message", "response.data.message" or "MESSAGES?."', () => {
+    const checkOrderWording = (filePath, content) => {
+      const norm = filePath.replace(/\\/g, '/');
+      const isTarget = norm.endsWith('services/guestOrderService.js') || norm.endsWith('hooks/useHostOrders.js');
+      if (!isTarget) return [];
+      const forbidden = ['response?.data?.message', 'response.data.message', 'MESSAGES?.'];
+      return forbidden.filter((p) => content.includes(p));
+    };
+
+    // Self-checks
+    expect(checkOrderWording('services/guestOrderService.js', 'const m = err?.response?.data?.message;')).toEqual(['response?.data?.message']);
+    expect(checkOrderWording('services/guestOrderService.js', 'const m = err.response.data.message;')).toEqual(['response.data.message']);
+    expect(checkOrderWording('hooks/useHostOrders.js', 'const m = MESSAGES?.guest;')).toEqual(['MESSAGES?.']);
+    expect(checkOrderWording('services/guestOrderService.js', 'const m = "ok";')).toEqual([]);
+    expect(checkOrderWording('other/file.js', 'const m = err.response.data.message;')).toEqual([]);
+
+    const allSource = getAllSourceFiles(SRC_DIR);
+    for (const file of allSource) {
+      const content = fs.readFileSync(file, 'utf8');
+      const found = checkOrderWording(file, content);
+      expect(found, `${file} contains forbidden wording: ${found.join(', ')}`).toEqual([]);
+    }
+  });
+
+  test('the guest order files never contain the staff token key', () => {
+    const checkGuestOrderToken = (filePath, content) => {
+      const norm = filePath.replace(/\\/g, '/');
+      const isGuestOrder = norm.includes('guestOrder') || norm.includes('useHostOrders');
+      if (!isGuestOrder) return [];
+      const staffTokenKeys = ['AUTH_TOKEN', 'maitred.authToken', 'staffToken', 'STAFF_TOKEN_KEY'];
+      return staffTokenKeys.filter((k) => content.includes(k));
+    };
+
+    // Self-checks
+    expect(checkGuestOrderToken('services/guestOrderService.js', 'const k = "staffToken";')).toEqual(['staffToken']);
+    expect(checkGuestOrderToken('hooks/useHostOrders.js', 'const k = STORAGE_KEYS.AUTH_TOKEN;')).toEqual(['AUTH_TOKEN']);
+    expect(checkGuestOrderToken('services/guestOrderService.js', 'const k = "guestToken";')).toEqual([]);
+    expect(checkGuestOrderToken('services/kitchenService.js', 'const k = "staffToken";')).toEqual([]);
+
+    const allSource = getAllSourceFiles(SRC_DIR);
+    for (const file of allSource) {
+      const content = fs.readFileSync(file, 'utf8');
+      const found = checkGuestOrderToken(file, content);
+      expect(found, `${file} contains staff token key: ${found.join(', ')}`).toEqual([]);
+    }
+  });
+
+  test('the string "cartPlaceholder" is not used by any component (only messages.js may define it)', () => {
+    const checkCartPlaceholder = (filePath, content) => {
+      const norm = filePath.replace(/\\/g, '/');
+      if (norm.endsWith('utils/messages.js')) return [];
+      const isComponent = norm.includes('/Components/') || norm.includes('/pages/');
+      if (isComponent && content.includes('cartPlaceholder')) {
+        return ['cartPlaceholder'];
+      }
+      return [];
+    };
+
+    // Self-checks
+    expect(checkCartPlaceholder('src/Components/Guest/CartSheet.jsx', 'const p = MESSAGES.guest.cartPlaceholder;')).toEqual(['cartPlaceholder']);
+    expect(checkCartPlaceholder('src/utils/messages.js', 'cartPlaceholder: "..."')).toEqual([]);
+    expect(checkCartPlaceholder('src/Components/Guest/CartSheet.jsx', 'const p = "placeOrder";')).toEqual([]);
+
+    const allSource = getAllSourceFiles(SRC_DIR);
+    for (const file of allSource) {
+      const content = fs.readFileSync(file, 'utf8');
+      const found = checkCartPlaceholder(file, content);
+      expect(found, `${file} uses forbidden cartPlaceholder`).toEqual([]);
+    }
+  });
 });
 
