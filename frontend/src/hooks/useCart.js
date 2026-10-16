@@ -132,6 +132,7 @@ export const useCart = ({ enabled = true, onStale } = {}) => {
     decrease,
     remove,
     getVersion,
+    applyCart: applyIncomingCart,
   };
 };
 

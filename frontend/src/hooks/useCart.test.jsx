@@ -430,4 +430,73 @@ describe('useCart', () => {
     });
     expect(result.current.error).toBeNull();
   });
+
+  test('17. applyCart applies a newer cart, updates state, and returns true', async () => {
+    cartService.getCart.mockResolvedValueOnce(cartV(1));
+    const { result } = renderHook(() => useCart({ enabled: true }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.cart.version).toBe(1);
+
+    let applied;
+    act(() => {
+      applied = result.current.applyCart(cartV(2));
+    });
+
+    expect(applied).toBe(true);
+    expect(result.current.cart.version).toBe(2);
+    expect(result.current.status).toBe('ready');
+  });
+
+  test('18. applyCart rejects an older cart, keeps current cart, and returns false', async () => {
+    cartService.getCart.mockResolvedValueOnce(cartV(2));
+    const { result } = renderHook(() => useCart({ enabled: true }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.cart.version).toBe(2);
+
+    let applied;
+    act(() => {
+      applied = result.current.applyCart(cartV(1));
+    });
+
+    expect(applied).toBe(false);
+    expect(result.current.cart.version).toBe(2);
+  });
+
+  test('19. applyCart rejects a malformed cart and returns false', async () => {
+    cartService.getCart.mockResolvedValueOnce(cartV(1));
+    const { result } = renderHook(() => useCart({ enabled: true }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    for (const bad of [null, undefined, {}, { version: 'x' }, { version: 2, lines: 'invalid' }]) {
+      let applied;
+      act(() => {
+        applied = result.current.applyCart(bad);
+      });
+      expect(applied).toBe(false);
+      expect(result.current.cart.version).toBe(1);
+    }
+  });
+
+  test('20. applyCart does nothing and returns false after unmount', async () => {
+    cartService.getCart.mockResolvedValueOnce(cartV(1));
+    const { result, unmount } = renderHook(() => useCart({ enabled: true }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    unmount();
+
+    let applied;
+    act(() => {
+      applied = result.current.applyCart(cartV(2));
+    });
+
+    expect(applied).toBe(false);
+  });
 });
