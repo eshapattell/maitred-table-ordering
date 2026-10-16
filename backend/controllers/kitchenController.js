@@ -100,23 +100,24 @@ export const updateOrderItemStatus = async (req, res, next) => {
 
       if (!order) {
         return res.status(404).json({
-          message: 'Order item not found',
-          code: 'ORDER_ITEM_NOT_FOUND',
+          message: 'Order not found',
+          code: 'ORDER_NOT_FOUND',
         });
       }
 
       const item = (order.items || []).find((i) => i && i.orderItemId === orderItemId);
       if (!item) {
         return res.status(404).json({
-          message: 'Order item not found',
-          code: 'ORDER_ITEM_NOT_FOUND',
+          message: 'Order not found',
+          code: 'ORDER_NOT_FOUND',
         });
       }
 
       if (!canMoveStatus(item.status, targetStatus)) {
         return res.status(409).json({
           message: `This dish cannot move from ${item.status} to ${targetStatus}`,
-          code: 'INVALID_TRANSITION',
+          code: 'INVALID_MOVE',
+          current: item.status,
         });
       }
 

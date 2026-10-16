@@ -604,8 +604,8 @@ describe('Staff Kitchen Routes (/api/orders)', () => {
     });
   });
 
-  // 5. Invalid Transitions: PATCH returns 409 INVALID_TRANSITION
-  describe('5. Invalid Transitions (409 INVALID_TRANSITION)', () => {
+  // 5. Invalid Transitions: PATCH returns 409 INVALID_MOVE
+  describe('5. Invalid Transitions (409 INVALID_MOVE)', () => {
     test('5.1 Cannot skip from placed to ready (409 INVALID_TRANSITION)', async () => {
       const { order, orderItemId } = await makeOrder(fixtures.restaurantA._id);
 
@@ -615,7 +615,8 @@ describe('Staff Kitchen Routes (/api/orders)', () => {
         .send({ status: 'ready' });
 
       expect(res.status).toBe(409);
-      expect(res.body.code).toBe('INVALID_TRANSITION');
+      expect(res.body.code).toBe('INVALID_MOVE');
+      expect(res.body.current).toBe('placed');
       expect(ordersChangedSpy).not.toHaveBeenCalled();
     });
 
@@ -628,7 +629,8 @@ describe('Staff Kitchen Routes (/api/orders)', () => {
         .send({ status: 'served' });
 
       expect(res.status).toBe(409);
-      expect(res.body.code).toBe('INVALID_TRANSITION');
+      expect(res.body.code).toBe('INVALID_MOVE');
+      expect(res.body.current).toBe('placed');
       expect(ordersChangedSpy).not.toHaveBeenCalled();
     });
 
@@ -644,7 +646,8 @@ describe('Staff Kitchen Routes (/api/orders)', () => {
         .send({ status: 'cancelled' });
 
       expect(res.status).toBe(409);
-      expect(res.body.code).toBe('INVALID_TRANSITION');
+      expect(res.body.code).toBe('INVALID_MOVE');
+      expect(res.body.current).toBe('preparing');
       expect(ordersChangedSpy).not.toHaveBeenCalled();
     });
 
@@ -660,7 +663,8 @@ describe('Staff Kitchen Routes (/api/orders)', () => {
         .send({ status: 'cancelled' });
 
       expect(res.status).toBe(409);
-      expect(res.body.code).toBe('INVALID_TRANSITION');
+      expect(res.body.code).toBe('INVALID_MOVE');
+      expect(res.body.current).toBe('ready');
       expect(ordersChangedSpy).not.toHaveBeenCalled();
     });
 
@@ -676,7 +680,8 @@ describe('Staff Kitchen Routes (/api/orders)', () => {
         .send({ status: 'preparing' });
 
       expect(res.status).toBe(409);
-      expect(res.body.code).toBe('INVALID_TRANSITION');
+      expect(res.body.code).toBe('INVALID_MOVE');
+      expect(res.body.current).toBe('served');
       expect(ordersChangedSpy).not.toHaveBeenCalled();
     });
 
@@ -692,7 +697,8 @@ describe('Staff Kitchen Routes (/api/orders)', () => {
         .send({ status: 'preparing' });
 
       expect(res.status).toBe(409);
-      expect(res.body.code).toBe('INVALID_TRANSITION');
+      expect(res.body.code).toBe('INVALID_MOVE');
+      expect(res.body.current).toBe('cancelled');
       expect(ordersChangedSpy).not.toHaveBeenCalled();
     });
 
@@ -708,7 +714,8 @@ describe('Staff Kitchen Routes (/api/orders)', () => {
         .send({ status: 'preparing' });
 
       expect(res.status).toBe(409);
-      expect(res.body.code).toBe('INVALID_TRANSITION');
+      expect(res.body.code).toBe('INVALID_MOVE');
+      expect(res.body.current).toBe('preparing');
       expect(ordersChangedSpy).not.toHaveBeenCalled();
     });
 
@@ -724,7 +731,8 @@ describe('Staff Kitchen Routes (/api/orders)', () => {
         .send({ status: 'ready' });
 
       expect(res.status).toBe(409);
-      expect(res.body.code).toBe('INVALID_TRANSITION');
+      expect(res.body.code).toBe('INVALID_MOVE');
+      expect(res.body.current).toBe('ready');
       expect(ordersChangedSpy).not.toHaveBeenCalled();
     });
   });
@@ -741,7 +749,7 @@ describe('Staff Kitchen Routes (/api/orders)', () => {
         .send({ status: 'preparing' });
 
       expect(res.status).toBe(404);
-      expect(res.body.code).toBe('ORDER_ITEM_NOT_FOUND');
+      expect(res.body.code).toBe('ORDER_NOT_FOUND');
       expect(ordersChangedSpy).not.toHaveBeenCalled();
     });
 
@@ -755,7 +763,7 @@ describe('Staff Kitchen Routes (/api/orders)', () => {
         .send({ status: 'preparing' });
 
       expect(res.status).toBe(404);
-      expect(res.body.code).toBe('ORDER_ITEM_NOT_FOUND');
+      expect(res.body.code).toBe('ORDER_NOT_FOUND');
       expect(ordersChangedSpy).not.toHaveBeenCalled();
     });
 
@@ -769,7 +777,7 @@ describe('Staff Kitchen Routes (/api/orders)', () => {
         .send({ status: 'preparing' });
 
       expect(res.status).toBe(404);
-      expect(res.body.code).toBe('ORDER_ITEM_NOT_FOUND');
+      expect(res.body.code).toBe('ORDER_NOT_FOUND');
       expect(ordersChangedSpy).not.toHaveBeenCalled();
     });
 
@@ -833,7 +841,8 @@ describe('Staff Kitchen Routes (/api/orders)', () => {
       expect(statuses).toEqual([200, 409]);
 
       const errorRes = res1.status === 409 ? res1 : res2;
-      expect(errorRes.body.code).toBe('INVALID_TRANSITION');
+      expect(errorRes.body.code).toBe('INVALID_MOVE');
+      expect(errorRes.body.current).toBe('preparing');
     });
   });
 });
