@@ -17,3 +17,9 @@ export const cancelPlacedItem = async (orderId, orderItemId) => {
   const response = await guestApi.post(`/sessions/orders/${encodedOrderId}/items/${encodedItemId}/cancel`);
   return response.data;
 };
+
+export const fetchTableOrders = async () => {
+  const response = await guestApi.get('/sessions/orders');
+  return response.data;
+};
+

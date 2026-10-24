@@ -1,7 +1,7 @@
 // guestOrderService.test.js: unit tests for guest order API service
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 import guestApi from './guestApi.js';
-import { placeOrder, fetchPlacedItems, cancelPlacedItem } from './guestOrderService.js';
+import { placeOrder, fetchPlacedItems, cancelPlacedItem, fetchTableOrders } from './guestOrderService.js';
 
 vi.mock('./guestApi.js');
 
@@ -107,4 +107,44 @@ describe('guestOrderService', () => {
       response: { status: 409, data: { code: 'ALREADY_STARTED' } },
     });
   });
+
+  test('9. fetchTableOrders sends GET to /sessions/orders and returns response.data', async () => {
+    const mockHistory = {
+      orders: [
+        {
+          id: '1'.repeat(24),
+          placedAt: '2026-10-14T13:42:00.000Z',
+          items: [{ id: 'item-1', menuItemId: 'a'.repeat(24), name: 'Soup', qty: 2, orderedBy: 'Hema', cancelled: false }],
+        },
+      ],
+      totals: { dishes: 1, items: 2 },
+    };
+    guestApi.get.mockResolvedValueOnce({ data: mockHistory });
+
+    const result = await fetchTableOrders();
+    expect(guestApi.get).toHaveBeenCalledWith('/sessions/orders');
+    expect(result).toEqual(mockHistory);
+  });
+
+  test('10. fetchTableOrders propagates error with response.status and code intact', async () => {
+    const error = {
+      response: {
+        status: 403,
+        data: { code: 'APPROVAL_PENDING', message: 'Not approved' },
+      },
+    };
+    guestApi.get.mockRejectedValueOnce(error);
+
+    await expect(fetchTableOrders()).rejects.toMatchObject({
+      response: { status: 403, data: { code: 'APPROVAL_PENDING' } },
+    });
+  });
+
+  test('11. fetchTableOrders propagates network error without response', async () => {
+    const networkError = new Error('Network Error');
+    guestApi.get.mockRejectedValueOnce(networkError);
+
+    await expect(fetchTableOrders()).rejects.toThrow('Network Error');
+  });
 });
+
