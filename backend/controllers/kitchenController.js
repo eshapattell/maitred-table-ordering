@@ -89,6 +89,9 @@ export const updateOrderItemStatus = async (req, res, next) => {
       if (updateResult.matchedCount === 1) {
         realtime.ordersChanged(req.user.restaurantId);
         const reloaded = await Order.findById(orderId).lean();
+        if (targetStatus === 'cancelled' && reloaded?.sessionId) {
+          realtime.sessionChanged(reloaded.sessionId);
+        }
         return res.status(200).json({ order: kitchenOrderView(reloaded) });
       }
 

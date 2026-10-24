@@ -1327,4 +1327,498 @@ describe('Host Order Routes (/api/sessions/orders)', () => {
       cartChangedSpy.mockRestore();
     });
   });
+
+  describe('6. Table Order History (/api/sessions/orders)', () => {
+    test('6.1. GET /api/sessions/orders: no token gives 401', async () => {
+      const res = await request(app).get('/api/sessions/orders');
+      expect(res.status).toBe(401);
+      expect(res.body.code).toBe('INVALID_TOKEN');
+    });
+
+    test('6.2. GET /api/sessions/orders: staff token gives 401', async () => {
+      const res = await request(app)
+        .get('/api/sessions/orders')
+        .set('Authorization', `Bearer ${fixtures.ownerAToken}`);
+      expect(res.status).toBe(401);
+      expect(res.body.code).toBe('INVALID_TOKEN');
+    });
+
+    test('6.3. GET /api/sessions/orders: garbage token gives 401', async () => {
+      const res = await request(app)
+        .get('/api/sessions/orders')
+        .set('Authorization', 'Bearer garbage.jwt.token');
+      expect(res.status).toBe(401);
+      expect(res.body.code).toBe('INVALID_TOKEN');
+    });
+
+    test('6.4. GET /api/sessions/orders: waiting guest gives 403 APPROVAL_PENDING', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      await setupHost(table);
+      const waiting = await joinGuest(table, 'WaitingGuest');
+      const res = await request(app)
+        .get('/api/sessions/orders')
+        .set('Authorization', `Bearer ${waiting.token}`);
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe('APPROVAL_PENDING');
+    });
+
+    test('6.5. GET /api/sessions/orders: guest with no allergy declaration gives 403 ALLERGIES_REQUIRED', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const joined = await joinGuest(table, 'NoAllergyGuest');
+      const res = await request(app)
+        .get('/api/sessions/orders')
+        .set('Authorization', `Bearer ${joined.token}`);
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe('ALLERGIES_REQUIRED');
+    });
+
+    test('6.6. GET /api/sessions/orders: closed session gives 401 SESSION_CLOSED', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const host = await setupHost(table);
+      await TableSession.updateOne({ _id: host.sessionId }, { $set: { status: 'closed' } });
+      const res = await request(app)
+        .get('/api/sessions/orders')
+        .set('Authorization', `Bearer ${host.token}`);
+      expect(res.status).toBe(401);
+      expect(res.body.code).toBe('SESSION_CLOSED');
+    });
+
+    test('6.7. GET /api/sessions/orders: fresh session answers 200 with empty orders and zero totals', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const host = await setupHost(table);
+      const res = await request(app)
+        .get('/api/sessions/orders')
+        .set('Authorization', `Bearer ${host.token}`);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ orders: [], totals: { dishes: 0, items: 0 } });
+    });
+
+    test('6.8. GET /api/sessions/orders: host and ordinary guest both get 200 with identical body', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const host = await setupHost(table);
+      const guest = await setupApprovedGuest(table, host.token, 'OrdinaryGuest');
+      const dish = await makeDish(fixtures.restaurantA._id, { name: 'Paneer Tikka' });
+
+      await request(app)
+        .post('/api/sessions/cart/items')
+        .set('Authorization', `Bearer ${guest.token}`)
+        .send({ menuItemId: String(dish._id), quantity: 2 });
+
+      await request(app)
+        .post('/api/sessions/orders')
+        .set('Authorization', `Bearer ${host.token}`)
+        .send({ expectedVersion: 1 });
+
+      const hostRes = await request(app)
+        .get('/api/sessions/orders')
+        .set('Authorization', `Bearer ${host.token}`);
+
+      const guestRes = await request(app)
+        .get('/api/sessions/orders')
+        .set('Authorization', `Bearer ${guest.token}`);
+
+      expect(hostRes.status).toBe(200);
+      expect(guestRes.status).toBe(200);
+      expect(hostRes.body).toEqual(guestRes.body);
+      expect(guestRes.body.totals).toEqual({ dishes: 1, items: 2 });
+    });
+
+    test('6.9. GET /api/sessions/orders: after host places an order, history lists dishes, quantities, adder, and cancelled false', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const host = await setupHost(table);
+      const guest = await setupApprovedGuest(table, host.token, 'Asha');
+      const dish1 = await makeDish(fixtures.restaurantA._id, { name: 'Dal Makhani' });
+      const dish2 = await makeDish(fixtures.restaurantA._id, { name: 'Garlic Naan' });
+
+      await request(app)
+        .post('/api/sessions/cart/items')
+        .set('Authorization', `Bearer ${guest.token}`)
+        .send({ menuItemId: String(dish1._id), quantity: 1 });
+
+      await request(app)
+        .post('/api/sessions/cart/items')
+        .set('Authorization', `Bearer ${host.token}`)
+        .send({ menuItemId: String(dish2._id), quantity: 3 });
+
+      await request(app)
+        .post('/api/sessions/orders')
+        .set('Authorization', `Bearer ${host.token}`)
+        .send({ expectedVersion: 2 });
+
+      const res = await request(app)
+        .get('/api/sessions/orders')
+        .set('Authorization', `Bearer ${guest.token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.orders).toHaveLength(1);
+      const round = res.body.orders[0];
+      expect(round.items).toHaveLength(2);
+
+      const dal = round.items.find((i) => i.name === 'Dal Makhani');
+      expect(dal).toMatchObject({
+        menuItemId: String(dish1._id).toLowerCase(),
+        name: 'Dal Makhani',
+        qty: 1,
+        orderedBy: 'Asha',
+        cancelled: false,
+      });
+      expect(dal.id).toBeDefined();
+
+      const naan = round.items.find((i) => i.name === 'Garlic Naan');
+      expect(naan).toMatchObject({
+        menuItemId: String(dish2._id).toLowerCase(),
+        name: 'Garlic Naan',
+        qty: 3,
+        orderedBy: 'Host',
+        cancelled: false,
+      });
+
+      expect(res.body.totals).toEqual({ dishes: 2, items: 4 });
+    });
+
+    test('6.10. GET /api/sessions/orders: after a second order there are two rounds in the order placed', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const host = await setupHost(table);
+      const dish1 = await makeDish(fixtures.restaurantA._id, { name: 'Soup' });
+      const dish2 = await makeDish(fixtures.restaurantA._id, { name: 'Rice' });
+
+      // Round 1
+      await request(app)
+        .post('/api/sessions/cart/items')
+        .set('Authorization', `Bearer ${host.token}`)
+        .send({ menuItemId: String(dish1._id), quantity: 1 });
+      await request(app)
+        .post('/api/sessions/orders')
+        .set('Authorization', `Bearer ${host.token}`)
+        .send({ expectedVersion: 1 });
+
+      // Round 2
+      await request(app)
+        .post('/api/sessions/cart/items')
+        .set('Authorization', `Bearer ${host.token}`)
+        .send({ menuItemId: String(dish2._id), quantity: 2 });
+      await request(app)
+        .post('/api/sessions/orders')
+        .set('Authorization', `Bearer ${host.token}`)
+        .send({ expectedVersion: 3 });
+
+      const res = await request(app)
+        .get('/api/sessions/orders')
+        .set('Authorization', `Bearer ${host.token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.orders).toHaveLength(2);
+      expect(res.body.orders[0].items[0].name).toBe('Soup');
+      expect(res.body.orders[1].items[0].name).toBe('Rice');
+      expect(new Date(res.body.orders[0].placedAt).getTime()).toBeLessThanOrEqual(
+        new Date(res.body.orders[1].placedAt).getTime()
+      );
+      expect(res.body.totals).toEqual({ dishes: 2, items: 3 });
+    });
+
+    test('6.11. GET /api/sessions/orders: a dish the host cancels shows cancelled true and is left out of totals', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const host = await setupHost(table);
+      const dish1 = await makeDish(fixtures.restaurantA._id, { name: 'Lassi' });
+      const dish2 = await makeDish(fixtures.restaurantA._id, { name: 'Kebab' });
+
+      await request(app)
+        .post('/api/sessions/cart/items')
+        .set('Authorization', `Bearer ${host.token}`)
+        .send({ menuItemId: String(dish1._id), quantity: 2 });
+      await request(app)
+        .post('/api/sessions/cart/items')
+        .set('Authorization', `Bearer ${host.token}`)
+        .send({ menuItemId: String(dish2._id), quantity: 1 });
+
+      const placeRes = await request(app)
+        .post('/api/sessions/orders')
+        .set('Authorization', `Bearer ${host.token}`)
+        .send({ expectedVersion: 2 });
+      expect(placeRes.status).toBe(201);
+
+      const placedRes = await request(app)
+        .get('/api/sessions/orders/placed')
+        .set('Authorization', `Bearer ${host.token}`);
+      expect(placedRes.body.items).toHaveLength(2);
+
+      const lassi = placedRes.body.items.find((i) => i.name === 'Lassi');
+      const cancelRes = await request(app)
+        .post(`/api/sessions/orders/${lassi.orderId}/items/${lassi.orderItemId}/cancel`)
+        .set('Authorization', `Bearer ${host.token}`);
+      expect(cancelRes.status).toBe(200);
+
+      const res = await request(app)
+        .get('/api/sessions/orders')
+        .set('Authorization', `Bearer ${host.token}`);
+
+      expect(res.status).toBe(200);
+      const items = res.body.orders[0].items;
+      const lassiInHistory = items.find((i) => i.name === 'Lassi');
+      const kebabInHistory = items.find((i) => i.name === 'Kebab');
+      expect(lassiInHistory.cancelled).toBe(true);
+      expect(kebabInHistory.cancelled).toBe(false);
+
+      expect(res.body.totals).toEqual({ dishes: 1, items: 1 });
+    });
+
+    test('6.12. GET /api/sessions/orders: answer never contains price, allergy tag, tableAllergies, phone, sessionId, restaurantId, or cooking status', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const host = await setupHost(table);
+      const guestWithAllergy = await setupApprovedGuest(table, host.token, 'AllergicGuest', ['tree nut']);
+      const dish = await makeDish(fixtures.restaurantA._id, {
+        name: 'Special Biryani',
+        price: 499,
+        allergens: ['dairy'],
+      });
+
+      await request(app)
+        .post('/api/sessions/cart/items')
+        .set('Authorization', `Bearer ${host.token}`)
+        .send({ menuItemId: String(dish._id), quantity: 2 });
+
+      const placeRes = await request(app)
+        .post('/api/sessions/orders')
+        .set('Authorization', `Bearer ${host.token}`)
+        .send({ expectedVersion: 1 });
+      expect(placeRes.status).toBe(201);
+
+      const res = await request(app)
+        .get('/api/sessions/orders')
+        .set('Authorization', `Bearer ${host.token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('orders');
+      expect(res.body).toHaveProperty('totals');
+      expect(res.body.orders).toHaveLength(1);
+      expect(res.body.totals).toEqual({ dishes: 1, items: 2 });
+
+      const rawText = JSON.stringify(res.body);
+
+      expect(rawText).not.toMatch(/price|499|allergy|allergens|dairy|tableAllergies|tree nut/i);
+      expect(rawText).not.toMatch(/phone|9827|9833/i);
+      expect(rawText).not.toContain(String(host.sessionId));
+      expect(rawText).not.toContain(String(fixtures.restaurantA._id));
+      expect(rawText).not.toContain(String(table.number));
+      expect(rawText).not.toMatch(/"status"|"placed"|"preparing"|"ready"|"served"/);
+    });
+
+    test('6.13. GET /api/sessions/orders: surprise item inserted straight through model (isSurprise true, unrevealed) shows "Surprise dish" and null menuItemId', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const host = await setupHost(table);
+      const dish = await makeDish(fixtures.restaurantA._id, { name: 'Secret Dessert' });
+
+      await Order.create({
+        sessionId: host.sessionId,
+        restaurantId: fixtures.restaurantA._id,
+        tableNumber: table.number,
+        items: [
+          {
+            orderItemId: crypto.randomUUID(),
+            itemId: dish._id,
+            name: dish.name,
+            price: 350,
+            qty: 1,
+            orderedBy: 'Host',
+            allergyFlags: [],
+            isSurprise: true,
+            revealed: false,
+            status: 'placed',
+          },
+        ],
+      });
+
+      const res = await request(app)
+        .get('/api/sessions/orders')
+        .set('Authorization', `Bearer ${host.token}`);
+
+      expect(res.status).toBe(200);
+      const item = res.body.orders[0].items[0];
+      expect(item.name).toBe('Surprise dish');
+      expect(item.menuItemId).toBeNull();
+      expect(JSON.stringify(res.body)).not.toContain('Secret Dessert');
+      expect(JSON.stringify(res.body)).not.toContain(String(dish._id));
+      expect(res.body.totals).toEqual({ dishes: 1, items: 1 });
+    });
+
+    test('6.14. GET /api/sessions/orders: ANOTHER tables orders never appear in either direction', async () => {
+      const table1 = await makeTable(fixtures.restaurantA._id);
+      const host1 = await setupHost(table1);
+      const dish1 = await makeDish(fixtures.restaurantA._id, { name: 'Table 1 Curry' });
+
+      const table2 = await makeTable(fixtures.restaurantA._id);
+      const host2 = await setupHost(table2);
+      const dish2 = await makeDish(fixtures.restaurantA._id, { name: 'Table 2 Pasta' });
+
+      // Order on Table 1
+      await request(app)
+        .post('/api/sessions/cart/items')
+        .set('Authorization', `Bearer ${host1.token}`)
+        .send({ menuItemId: String(dish1._id), quantity: 1 });
+      await request(app)
+        .post('/api/sessions/orders')
+        .set('Authorization', `Bearer ${host1.token}`)
+        .send({ expectedVersion: 1 });
+
+      // Order on Table 2
+      await request(app)
+        .post('/api/sessions/cart/items')
+        .set('Authorization', `Bearer ${host2.token}`)
+        .send({ menuItemId: String(dish2._id), quantity: 2 });
+      await request(app)
+        .post('/api/sessions/orders')
+        .set('Authorization', `Bearer ${host2.token}`)
+        .send({ expectedVersion: 1 });
+
+      // Table 1 query
+      const res1 = await request(app)
+        .get('/api/sessions/orders')
+        .set('Authorization', `Bearer ${host1.token}`);
+      expect(res1.status).toBe(200);
+      expect(res1.body.orders).toHaveLength(1);
+      expect(res1.body.orders[0].items[0].name).toBe('Table 1 Curry');
+      expect(JSON.stringify(res1.body)).not.toContain('Table 2 Pasta');
+
+      // Table 2 query
+      const res2 = await request(app)
+        .get('/api/sessions/orders')
+        .set('Authorization', `Bearer ${host2.token}`);
+      expect(res2.status).toBe(200);
+      expect(res2.body.orders).toHaveLength(1);
+      expect(res2.body.orders[0].items[0].name).toBe('Table 2 Pasta');
+      expect(JSON.stringify(res2.body)).not.toContain('Table 1 Curry');
+    });
+
+    test('6.15. host-only routes refuse ordinary guest with 403 NOT_HOST: GET /api/sessions/orders/placed', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const host = await setupHost(table);
+      const guest = await setupApprovedGuest(table, host.token, 'GuestPlaced');
+      const res = await request(app)
+        .get('/api/sessions/orders/placed')
+        .set('Authorization', `Bearer ${guest.token}`);
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe('NOT_HOST');
+    });
+
+    test('6.16. host-only routes refuse ordinary guest with 403 NOT_HOST: POST /api/sessions/orders', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const host = await setupHost(table);
+      const guest = await setupApprovedGuest(table, host.token, 'GuestOrder');
+      const res = await request(app)
+        .post('/api/sessions/orders')
+        .set('Authorization', `Bearer ${guest.token}`)
+        .send({ expectedVersion: 0 });
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe('NOT_HOST');
+    });
+
+    test('6.17. host-only routes refuse ordinary guest with 403 NOT_HOST: POST /api/sessions/orders/:orderId/items/:orderItemId/cancel', async () => {
+      const table = await makeTable(fixtures.restaurantA._id);
+      const host = await setupHost(table);
+      const guest = await setupApprovedGuest(table, host.token, 'GuestCancel');
+      const res = await request(app)
+        .post(`/api/sessions/orders/${new mongoose.Types.ObjectId()}/items/${crypto.randomUUID()}/cancel`)
+        .set('Authorization', `Bearer ${guest.token}`);
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe('NOT_HOST');
+    });
+
+    test('6.18. host cancel calls realtime.sessionChanged exactly once with sessionId, and ordersChanged as before', async () => {
+      const sessionChangedSpy = jest.spyOn(realtime, 'sessionChanged');
+      const ordersChangedSpy = jest.spyOn(realtime, 'ordersChanged');
+      sessionChangedSpy.mockClear();
+      ordersChangedSpy.mockClear();
+
+      const table = await makeTable(fixtures.restaurantA._id);
+      const host = await setupHost(table);
+      const dish = await makeDish(fixtures.restaurantA._id);
+
+      await request(app)
+        .post('/api/sessions/cart/items')
+        .set('Authorization', `Bearer ${host.token}`)
+        .send({ menuItemId: String(dish._id), quantity: 1 });
+
+      await request(app)
+        .post('/api/sessions/orders')
+        .set('Authorization', `Bearer ${host.token}`)
+        .send({ expectedVersion: 1 });
+
+      const placedRes = await request(app)
+        .get('/api/sessions/orders/placed')
+        .set('Authorization', `Bearer ${host.token}`);
+      const item = placedRes.body.items[0];
+
+      sessionChangedSpy.mockClear();
+      ordersChangedSpy.mockClear();
+
+      const cancelRes = await request(app)
+        .post(`/api/sessions/orders/${item.orderId}/items/${item.orderItemId}/cancel`)
+        .set('Authorization', `Bearer ${host.token}`);
+
+      expect(cancelRes.status).toBe(200);
+      expect(sessionChangedSpy).toHaveBeenCalledTimes(1);
+      expect(sessionChangedSpy).toHaveBeenCalledWith(host.sessionId);
+      expect(ordersChangedSpy).toHaveBeenCalledTimes(1);
+      expect(ordersChangedSpy).toHaveBeenCalledWith(String(fixtures.restaurantA._id));
+
+      sessionChangedSpy.mockRestore();
+      ordersChangedSpy.mockRestore();
+    });
+
+    test('6.19. failed host cancel (already started, unknown order) never calls realtime.sessionChanged', async () => {
+      const sessionChangedSpy = jest.spyOn(realtime, 'sessionChanged');
+      const ordersChangedSpy = jest.spyOn(realtime, 'ordersChanged');
+      sessionChangedSpy.mockClear();
+      ordersChangedSpy.mockClear();
+
+      const table = await makeTable(fixtures.restaurantA._id);
+      const host = await setupHost(table);
+      const dish = await makeDish(fixtures.restaurantA._id);
+
+      await request(app)
+        .post('/api/sessions/cart/items')
+        .set('Authorization', `Bearer ${host.token}`)
+        .send({ menuItemId: String(dish._id), quantity: 1 });
+
+      await request(app)
+        .post('/api/sessions/orders')
+        .set('Authorization', `Bearer ${host.token}`)
+        .send({ expectedVersion: 1 });
+
+      const placedRes = await request(app)
+        .get('/api/sessions/orders/placed')
+        .set('Authorization', `Bearer ${host.token}`);
+      const item = placedRes.body.items[0];
+
+      // Mark preparing directly in DB so cancel fails with ALREADY_STARTED
+      await Order.updateOne(
+        { _id: item.orderId, 'items.orderItemId': item.orderItemId },
+        { $set: { 'items.$.status': 'preparing' } }
+      );
+
+      sessionChangedSpy.mockClear();
+      ordersChangedSpy.mockClear();
+
+      const startedCancel = await request(app)
+        .post(`/api/sessions/orders/${item.orderId}/items/${item.orderItemId}/cancel`)
+        .set('Authorization', `Bearer ${host.token}`);
+      expect(startedCancel.status).toBe(409);
+      expect(sessionChangedSpy).not.toHaveBeenCalled();
+      expect(ordersChangedSpy).not.toHaveBeenCalled();
+
+      // Unknown order
+      sessionChangedSpy.mockClear();
+      ordersChangedSpy.mockClear();
+      const unknownCancel = await request(app)
+        .post(`/api/sessions/orders/${new mongoose.Types.ObjectId()}/items/${crypto.randomUUID()}/cancel`)
+        .set('Authorization', `Bearer ${host.token}`);
+      expect(unknownCancel.status).toBe(404);
+      expect(sessionChangedSpy).not.toHaveBeenCalled();
+      expect(ordersChangedSpy).not.toHaveBeenCalled();
+
+      sessionChangedSpy.mockRestore();
+      ordersChangedSpy.mockRestore();
+    });
+  });
 });
+

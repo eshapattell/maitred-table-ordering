@@ -17,6 +17,7 @@ import {
 } from '../utils/orderRules.js';
 import { loadCartView } from './cartController.js';
 import { realtime } from '../utils/realtime.js';
+import { orderHistoryView } from '../utils/orderHistory.js';
 
 class PlacementConflict extends Error {
   constructor() {
@@ -246,6 +247,7 @@ export const cancelOrderItem = async (req, res, next) => {
 
       if (updateResult.matchedCount === 1) {
         realtime.ordersChanged(req.guest.restaurantId);
+        realtime.sessionChanged(req.guest.sessionId);
         return res.status(200).json({ cancelled: true });
       }
 
@@ -284,6 +286,22 @@ export const cancelOrderItem = async (req, res, next) => {
       message: 'Please try again',
       code: 'TRY_AGAIN',
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * GET /api/sessions/orders
+ * Returns what has been ordered at the caller's table, mapped through orderHistoryView.
+ */
+export const listTableOrders = async (req, res, next) => {
+  try {
+    const orders = await Order.find({ sessionId: req.guest.sessionId })
+      .sort({ createdAt: 1 })
+      .lean();
+
+    return res.status(200).json(orderHistoryView(orders));
   } catch (err) {
     next(err);
   }

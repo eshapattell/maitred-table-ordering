@@ -845,4 +845,153 @@ describe('Staff Kitchen Routes (/api/orders)', () => {
       expect(errorRes.body.current).toBe('preparing');
     });
   });
+
+  describe('8. Session Notifications on Cancellation', () => {
+    test('8.1 Staff cancel of a placed dish calls realtime.sessionChanged exactly once with orders sessionId, and ordersChanged', async () => {
+      const sessionChangedSpy = jest.spyOn(realtime, 'sessionChanged');
+      sessionChangedSpy.mockClear();
+      ordersChangedSpy.mockClear();
+
+      const { order, orderItemId } = await makeOrder(fixtures.restaurantA._id);
+
+      const res = await request(app)
+        .patch(`/api/orders/${order._id}/items/${orderItemId}/status`)
+        .set('Authorization', `Bearer ${fixtures.kitchenAToken}`)
+        .send({ status: 'cancelled' });
+
+      expect(res.status).toBe(200);
+      expect(sessionChangedSpy).toHaveBeenCalledTimes(1);
+      expect(sessionChangedSpy).toHaveBeenCalledWith(order.sessionId);
+      expect(ordersChangedSpy).toHaveBeenCalledTimes(1);
+      expect(ordersChangedSpy).toHaveBeenCalledWith(String(fixtures.restaurantA._id));
+
+      sessionChangedSpy.mockRestore();
+    });
+
+    test('8.2 Status transitions to preparing, ready, and served never call realtime.sessionChanged', async () => {
+      const sessionChangedSpy = jest.spyOn(realtime, 'sessionChanged');
+      sessionChangedSpy.mockClear();
+      ordersChangedSpy.mockClear();
+
+      const { order, orderItemId } = await makeOrder(fixtures.restaurantA._id);
+
+      // placed -> preparing
+      const resPrep = await request(app)
+        .patch(`/api/orders/${order._id}/items/${orderItemId}/status`)
+        .set('Authorization', `Bearer ${fixtures.kitchenAToken}`)
+        .send({ status: 'preparing' });
+      expect(resPrep.status).toBe(200);
+      expect(sessionChangedSpy).not.toHaveBeenCalled();
+      expect(ordersChangedSpy).toHaveBeenCalledTimes(1);
+
+      // preparing -> ready
+      ordersChangedSpy.mockClear();
+      const resReady = await request(app)
+        .patch(`/api/orders/${order._id}/items/${orderItemId}/status`)
+        .set('Authorization', `Bearer ${fixtures.kitchenAToken}`)
+        .send({ status: 'ready' });
+      expect(resReady.status).toBe(200);
+      expect(sessionChangedSpy).not.toHaveBeenCalled();
+      expect(ordersChangedSpy).toHaveBeenCalledTimes(1);
+
+      // ready -> served
+      ordersChangedSpy.mockClear();
+      const resServed = await request(app)
+        .patch(`/api/orders/${order._id}/items/${orderItemId}/status`)
+        .set('Authorization', `Bearer ${fixtures.kitchenAToken}`)
+        .send({ status: 'served' });
+      expect(resServed.status).toBe(200);
+      expect(sessionChangedSpy).not.toHaveBeenCalled();
+      expect(ordersChangedSpy).toHaveBeenCalledTimes(1);
+
+      sessionChangedSpy.mockRestore();
+    });
+
+    test('8.3 Failed status transitions never call realtime.sessionChanged', async () => {
+      const sessionChangedSpy = jest.spyOn(realtime, 'sessionChanged');
+      sessionChangedSpy.mockClear();
+
+      const { order, orderItemId } = await makeOrder(fixtures.restaurantA._id);
+
+      // Invalid move: placed -> served
+      const invalidRes = await request(app)
+        .patch(`/api/orders/${order._id}/items/${orderItemId}/status`)
+        .set('Authorization', `Bearer ${fixtures.kitchenAToken}`)
+        .send({ status: 'served' });
+      expect(invalidRes.status).toBe(409);
+      expect(sessionChangedSpy).not.toHaveBeenCalled();
+
+      // Unknown order
+      const unknownOrderRes = await request(app)
+        .patch(`/api/orders/${new mongoose.Types.ObjectId()}/items/${orderItemId}/status`)
+        .set('Authorization', `Bearer ${fixtures.kitchenAToken}`)
+        .send({ status: 'cancelled' });
+      expect(unknownOrderRes.status).toBe(404);
+      expect(sessionChangedSpy).not.toHaveBeenCalled();
+
+      // Unknown item in order
+      const unknownItemRes = await request(app)
+        .patch(`/api/orders/${order._id}/items/${crypto.randomUUID()}/status`)
+        .set('Authorization', `Bearer ${fixtures.kitchenAToken}`)
+        .send({ status: 'cancelled' });
+      expect(unknownItemRes.status).toBe(404);
+      expect(sessionChangedSpy).not.toHaveBeenCalled();
+
+      // Dish already cancelled: cancelling again gives 409 and no sessionChanged
+      await Order.updateOne(
+        { _id: order._id, 'items.orderItemId': orderItemId },
+        { $set: { 'items.$.status': 'cancelled' } }
+      );
+      sessionChangedSpy.mockClear();
+      const alreadyCancelledRes = await request(app)
+        .patch(`/api/orders/${order._id}/items/${orderItemId}/status`)
+        .set('Authorization', `Bearer ${fixtures.kitchenAToken}`)
+        .send({ status: 'cancelled' });
+      expect(alreadyCancelledRes.status).toBe(409);
+      expect(sessionChangedSpy).not.toHaveBeenCalled();
+
+      sessionChangedSpy.mockRestore();
+    });
+
+    test('8.4 Staff cancel on order without sessionId succeeds without calling sessionChanged', async () => {
+      const sessionChangedSpy = jest.spyOn(realtime, 'sessionChanged');
+      sessionChangedSpy.mockClear();
+
+      const dish = await makeDish(fixtures.restaurantA._id);
+      const orderItemId = crypto.randomUUID();
+      const orderDoc = {
+        restaurantId: fixtures.restaurantA._id,
+        tableNumber: 15,
+        status: 'placed',
+        items: [
+          {
+            orderItemId,
+            itemId: dish._id,
+            name: dish.name,
+            price: dish.price,
+            qty: 1,
+            orderedBy: 'WalkIn',
+            allergyFlags: [],
+            isSurprise: false,
+            revealed: false,
+            status: 'placed',
+          },
+        ],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      const insertResult = await Order.collection.insertOne(orderDoc);
+      const order = { _id: insertResult.insertedId, ...orderDoc };
+
+      const res = await request(app)
+        .patch(`/api/orders/${order._id}/items/${orderItemId}/status`)
+        .set('Authorization', `Bearer ${fixtures.kitchenAToken}`)
+        .send({ status: 'cancelled' });
+
+      expect(res.status).toBe(200);
+      expect(sessionChangedSpy).not.toHaveBeenCalled();
+
+      sessionChangedSpy.mockRestore();
+    });
+  });
 });

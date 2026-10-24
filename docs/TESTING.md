@@ -576,8 +576,22 @@ Manual checks:
 7. **Kitchen Already Started Protection**: After the kitchen presses Start on a dish, Cancel for it answers "The kitchen has already started this dish".
 8. **Double-Tap Protection**: Pressing "Place order" twice quickly sends one order.
 
+## Table Order History & Guest Cancel Notifications (Task 11e)
+
+### Automated Test Coverage
+
+| Feature / Scenario | Expected Result | Test File | Status |
+| :--- | :--- | :--- | :--- |
+| Table Order History Route (`GET /api/sessions/orders`) | All approved participants (host and ordinary guests) can retrieve table order history; answers 200 with formatted orders and dish totals; rejects unauthenticated (401), waiting guests (403 APPROVAL_PENDING), undeclared allergies (403 ALLERGIES_REQUIRED), closed sessions (401 SESSION_CLOSED) | `backend/routes/orderRoutes.test.js` | Passed |
+| Order History Projection & Privacy (`orderHistoryView`) | Strict privacy: strips prices, tableAllergies, guest allergies, phone numbers, sessionId, restaurantId, and cooking statuses; unrevealed surprise dishes mask name to "Surprise dish" and null menuItemId; returns only dish names, quantities, who added them, and cancelled flags | `backend/routes/orderRoutes.test.js` | Passed |
+| Order History Multi-Round & Cross-Table Isolation | Preserves order history chronologically across multiple order rounds; correctly excludes cancelled dishes from totals count; strict session isolation ensures table A never sees table B orders | `backend/routes/orderRoutes.test.js` | Passed |
+| Host Cancel Session Change Notification | Successful host dish cancellation emits `realtime.sessionChanged` to inform all guests at the table; failed cancellations never emit | `backend/routes/orderRoutes.test.js` | Passed |
+| Staff Cancel Session Change Notification | Staff cancellation of a placed dish (`PATCH /api/orders/:orderId/items/:orderItemId/status`) emits `realtime.sessionChanged` with order's sessionId in addition to `ordersChanged`; progression to preparing/ready/served never emits sessionChanged; orders without sessionId handled safely | `backend/routes/kitchenRoutes.test.js` | Passed |
+
 ### Known Gaps
 | Description | Type | Status |
 | :--- | :--- | :--- |
 | Guests have no order-status screen by design | by design | open |
+| Guests see what the table ordered (dishes, quantities, who, cancelled) but never prices, allergies or cooking status | by design | by design |
+| A guest's list updates after a cancel through the existing session ping | note | note |
 | A cart line left behind after Place order stays until someone removes it | by design | open |
