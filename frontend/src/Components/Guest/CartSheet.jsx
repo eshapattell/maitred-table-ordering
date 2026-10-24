@@ -6,11 +6,13 @@ import { formatPrice } from '../../utils/formatters.js';
 import { groupLinesByAdder, lineActions, lineWarning } from '../../utils/guestCart.js';
 import { canPlaceOrder } from '../../utils/guestOrder.js';
 import { isHost } from '../../utils/guestSession.js';
+import { OrderedSoFar } from './OrderedSoFar.jsx';
 
 export const CartSheet = ({
   cart,
   viewerId,
   viewer,
+  history,
   busy = false,
   error = null,
   placing = false,
@@ -155,6 +157,8 @@ export const CartSheet = ({
           </div>
         </>
       )}
+
+      {history && <OrderedSoFar history={history} />}
 
       {viewerIsHost && Array.isArray(placedRows) && placedRows.length > 0 && (
         <section className="cart-sheet__placed-section">

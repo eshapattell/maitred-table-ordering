@@ -226,6 +226,13 @@ export const MESSAGES = deepFreeze({
     cancelAsk: (name) => `Cancel ${name}?`,
     cancelYes: "Yes, cancel",
     cancelNo: "Keep it",
+    orderedHeading: "Ordered so far",
+    orderedSummary: (items) => `${items === 1 ? "1 item" : items + " items"} ordered so far`,
+    orderedRound: (number, clock) => clock === "" ? `Order ${number}` : `Order ${number}, ${clock}`,
+    orderedNothing: "Nothing has been ordered yet.",
+    cancelledTag: "Cancelled",
+    orderedSoFar: (n) => `Ordered so far: ${n}`,
+    cartBarOrdered: (items) => `View table order: nothing new in the cart, ${items === 1 ? "1 item" : items + " items"} ordered so far`,
   },
   kitchen: {
     boardTitle: "Kitchen",

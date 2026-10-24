@@ -588,6 +588,50 @@ Manual checks:
 | Host Cancel Session Change Notification | Successful host dish cancellation emits `realtime.sessionChanged` to inform all guests at the table; failed cancellations never emit | `backend/routes/orderRoutes.test.js` | Passed |
 | Staff Cancel Session Change Notification | Staff cancellation of a placed dish (`PATCH /api/orders/:orderId/items/:orderItemId/status`) emits `realtime.sessionChanged` with order's sessionId in addition to `ordersChanged`; progression to preparing/ready/served never emits sessionChanged; orders without sessionId handled safely | `backend/routes/kitchenRoutes.test.js` | Passed |
 
+## Table "Ordered so far", Dish Counts & Cart Sheet History (Task 11e Frontend)
+
+### Automated Test Commands
+Run the suite of frontend unit, component, and integration tests:
+```bash
+npm test -- src/services/guestOrderService.test.js
+npm test -- src/hooks/useTableOrders.test.jsx
+npm test -- src/Components/Guest/OrderedSoFar.test.jsx
+npm test -- src/Components/Guest/CartSheet.test.jsx
+npm test -- src/Components/Guest/GuestMenuList.test.jsx
+npm test -- src/Components/Guest/CartBar.test.jsx
+npm test -- src/pages/GuestTableHistory.test.jsx
+npm test -- src/utils/sourceRules.test.js
+```
+
+### Mock & Socket Test Setup
+- **Socket Simulation**: `fakeSocket` is hoisted via `vi.hoisted()` providing `on`, `off`, `trigger`, and `disconnect` mocks. `connectLive` returns `fakeSocket`. Sockets trigger `cart:changed` (with `cartVersion`) and `session:changed` events cleanly inside `act()`.
+- **Timer Management**: Vitest fake timers (`vi.useFakeTimers()`) simulate asynchronous concurrency, sequence-numbered ordering, and socket ping reaction without flaky timeouts.
+- **Fixture Authenticity**: Fixtures are built using the backend's real pure functions (`orderHistoryView`, `freezeOrderItem`, and `buildCartView`), guaranteeing that test expectations match backend serialization without schema drift.
+- **Service Isolation**: Integration tests render `GuestTable` with real children and hooks (`useGuestTable`, `useCart`, `useTableOrders`), mocking only network boundaries (`guestOrderService`, `guestService`, `cartService`, and `liveSocket`).
+
+### Automated Test Coverage
+
+| Feature / Scenario | Expected Result | Test File | Status |
+| :--- | :--- | :--- | :--- |
+| Table Orders API Service (`guestOrderService.js`) | `fetchTableOrders()` calls `GET /sessions/orders` with guest token; returns `{ orders, totals }`; propagates errors and status codes | `frontend/src/services/guestOrderService.test.js` | Passed |
+| Table Orders Hook (`useTableOrders.js`) | Manages loading state, request coalescing (prevents parallel calls), sequence-number tracking, 401 ended code protection, and graceful error recovery retaining previous data on reload failure | `frontend/src/hooks/useTableOrders.test.jsx` | Passed |
+| Ordered So Far Component (`OrderedSoFar.jsx`) | Renders round-by-round order breakdown with formatted clock timestamps, dish quantities, who ordered them, cancelled tags on cancelled dishes, and table-wide items summary; renders quiet empty message when nothing ordered | `frontend/src/Components/Guest/OrderedSoFar.test.jsx` | Passed |
+| Cart Sheet History Integration (`CartSheet.jsx`) | Renders `<OrderedSoFar />` above placed items; displayed for both host and ordinary guests even when current cart is empty; host retains placed item cancellation controls | `frontend/src/Components/Guest/CartSheet.test.jsx` | Passed |
+| Menu Cards Ordered Counts (`GuestMenuList.jsx`) | Dish cards display `.guest-dish-ordered` badge ("Ordered so far: N") reflecting table-wide non-cancelled orders; un-ordered dishes render no badge | `frontend/src/Components/Guest/GuestMenuList.test.jsx` | Passed |
+| Bottom Bar Order Summary (`CartBar.jsx`) | Displays "Nothing new in the cart, N items ordered so far" when cart is empty and items were ordered; displays "Table order is empty" when 0 items ordered | `frontend/src/Components/Guest/CartBar.test.jsx` | Passed |
+| Page Integration: Host & Guest Perspectives (`GuestTableHistory.test.jsx`) | Full integration verification: host and ordinary guest see ordered rounds and items; cancelled dishes appear dimmed with tag; menu counts and bottom bar update; socket pings (`cart:changed`, `session:changed`) and opening cart reload history; history request disabled when not on menu screen | `frontend/src/pages/GuestTableHistory.test.jsx` | Passed |
+| Architecture & Rule 12 Scans (`sourceRules.test.js`) | `useTableOrders.js` and `OrderedSoFar.jsx` in scanned files list; no raw server error text leaking; no staff token keys; `OrderedSoFar.jsx` contains neither `.price` nor `allergyFlags` | `frontend/src/utils/sourceRules.test.js` | Passed |
+
+### Manual Verification Checklist
+1. **Host Places Order & Sees History**: Host adds dishes to the shared cart and clicks "Place order". Once placed, the host taps the bottom cart bar to open the sheet. The "Ordered so far" section appears, showing the dishes under "Order 1, [time]" with line quantities and "Ordered by [Host]".
+2. **Ordinary Guest Real-Time Synchronization**: In another browser window at the same table, an approved ordinary guest opens the order sheet. The guest sees the exact same "Ordered so far" list and round information. No prices or cooking statuses are displayed, and the guest sees "The host places the order." with no placement button.
+3. **Menu Card Badges ("Ordered so far: N")**: On the menu screen for all guests, each dish that was ordered shows an "Ordered so far: N" badge. Dishes that were not ordered display no badge.
+4. **Bottom Bar State When Cart Empties**: When the shared cart is empty but prior rounds exist, the bottom bar button reads "Nothing new in the cart, N items ordered so far" rather than "Table order is empty".
+5. **Dish Cancellation Dimming & Tagging**:
+   - Host cancels a dish awaiting start from the order sheet; after refresh, the dish appears dimmed with a red "Cancelled" tag, and the menu card's "Ordered so far" count decreases by the cancelled quantity.
+   - Kitchen cancels a dish from `/kitchen`; the socket event pings the guest table, and the cancelled dish updates to dimmed with the "Cancelled" tag.
+6. **Privacy Invariance**: Inspect the network response and DOM of `GET /sessions/orders`: no prices, no allergy details, no cooking statuses, and unrevealed surprise dishes display "Surprise dish" with null `menuItemId`.
+
 ### Known Gaps
 | Description | Type | Status |
 | :--- | :--- | :--- |
@@ -595,3 +639,4 @@ Manual checks:
 | Guests see what the table ordered (dishes, quantities, who, cancelled) but never prices, allergies or cooking status | by design | by design |
 | A guest's list updates after a cancel through the existing session ping | note | note |
 | A cart line left behind after Place order stays until someone removes it | by design | open |
+| The history shows no cooking status and no prices by design | by design | open |

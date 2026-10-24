@@ -5,6 +5,8 @@ import CartSheet from './CartSheet.jsx';
 import { MESSAGES } from '../../utils/messages.js';
 import { formatPrice } from '../../utils/formatters.js';
 import { buildCartView } from '../../../../backend/utils/cartView.js';
+import { orderHistoryView } from '../../../../backend/utils/orderHistory.js';
+import { freezeOrderItem } from '../../../../backend/utils/orderRules.js';
 
 const makeDish = (id, name, price, over = {}) => ({
   id,
@@ -395,4 +397,121 @@ describe('CartSheet', () => {
     rerender(<CartSheet cart={null} viewer={HOST} />);
     expect(screen.queryByText(MESSAGES.guest.cartPlaceholder)).not.toBeInTheDocument();
   });
+
+  it('24. the Ordered so far section appears when history prop is provided for the host', () => {
+    const history = orderHistoryView([
+      {
+        _id: '1'.repeat(24),
+        createdAt: '2026-10-14T13:42:00.000Z',
+        items: [
+          freezeOrderItem({
+            line: { qty: 2 },
+            dish: { _id: 'a'.repeat(24), name: 'Paneer Tikka', price: 250, allergens: [] },
+            adder: { nickname: 'Hema' },
+            orderItemId: '00000000-0000-4000-8000-000000000001',
+          }),
+        ],
+      },
+    ]);
+    render(<CartSheet cart={null} viewer={HOST} history={history} />);
+    expect(screen.getByRole('heading', { level: 3, name: MESSAGES.guest.orderedHeading })).toBeInTheDocument();
+    expect(screen.getByText('2 x Paneer Tikka')).toBeInTheDocument();
+  });
+
+  it('25. the Ordered so far section appears when history prop is provided for an ordinary guest', () => {
+    const history = orderHistoryView([
+      {
+        _id: '1'.repeat(24),
+        createdAt: '2026-10-14T13:42:00.000Z',
+        items: [
+          freezeOrderItem({
+            line: { qty: 1 },
+            dish: { _id: 'a'.repeat(24), name: 'Dal Makhani', price: 200, allergens: [] },
+            adder: { nickname: 'Bala' },
+            orderItemId: '00000000-0000-4000-8000-000000000002',
+          }),
+        ],
+      },
+    ]);
+    render(<CartSheet cart={null} viewer={GUEST} history={history} />);
+    expect(screen.getByRole('heading', { level: 3, name: MESSAGES.guest.orderedHeading })).toBeInTheDocument();
+    expect(screen.getByText('1 x Dal Makhani')).toBeInTheDocument();
+  });
+
+  it('26. the Ordered so far section appears when the cart is empty', () => {
+    const history = orderHistoryView([
+      {
+        _id: '1'.repeat(24),
+        createdAt: '2026-10-14T13:42:00.000Z',
+        items: [
+          freezeOrderItem({
+            line: { qty: 2 },
+            dish: { _id: 'a'.repeat(24), name: 'Paneer Tikka', price: 250, allergens: [] },
+            adder: { nickname: 'Hema' },
+            orderItemId: '00000000-0000-4000-8000-000000000001',
+          }),
+        ],
+      },
+    ]);
+    render(<CartSheet cart={{ lines: [], version: 1 }} viewer={HOST} history={history} />);
+    expect(screen.getByText(MESSAGES.guest.cartEmpty)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: MESSAGES.guest.orderedHeading })).toBeInTheDocument();
+    expect(screen.getByText('2 x Paneer Tikka')).toBeInTheDocument();
+  });
+
+  it('27. the Ordered so far section appears together with the host\'s Sent to the kitchen list', () => {
+    const history = orderHistoryView([
+      {
+        _id: '1'.repeat(24),
+        createdAt: '2026-10-14T13:42:00.000Z',
+        items: [
+          freezeOrderItem({
+            line: { qty: 2 },
+            dish: { _id: 'a'.repeat(24), name: 'Paneer Tikka', price: 250, allergens: [] },
+            adder: { nickname: 'Hema' },
+            orderItemId: '00000000-0000-4000-8000-000000000001',
+          }),
+        ],
+      },
+    ]);
+    const sampleRows = [
+      { orderId: 'd'.repeat(24), orderItemId: '00000000-0000-4000-8000-000000000002', name: 'Tomato Soup', qty: 1, orderedBy: 'Hema' },
+    ];
+    render(<CartSheet cart={null} viewer={HOST} history={history} placedRows={sampleRows} />);
+    expect(screen.getByRole('heading', { level: 3, name: MESSAGES.guest.orderedHeading })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: MESSAGES.guest.placedHeading })).toBeInTheDocument();
+  });
+
+  it('28. the Ordered so far section is absent when no history prop is given', () => {
+    render(<CartSheet cart={null} viewer={HOST} />);
+    expect(screen.queryByRole('heading', { level: 3, name: MESSAGES.guest.orderedHeading })).not.toBeInTheDocument();
+    expect(screen.queryByText(MESSAGES.guest.orderedNothing)).not.toBeInTheDocument();
+  });
+
+  it('29. Ordered so far section is placed right above Sent to the kitchen list in DOM', () => {
+    const history = orderHistoryView([
+      {
+        _id: '1'.repeat(24),
+        createdAt: '2026-10-14T13:42:00.000Z',
+        items: [
+          freezeOrderItem({
+            line: { qty: 1 },
+            dish: { _id: 'a'.repeat(24), name: 'Naan', price: 50, allergens: [] },
+            adder: { nickname: 'Hema' },
+            orderItemId: '00000000-0000-4000-8000-000000000003',
+          }),
+        ],
+      },
+    ]);
+    const sampleRows = [
+      { orderId: 'd'.repeat(24), orderItemId: '00000000-0000-4000-8000-000000000004', name: 'Soup', qty: 1, orderedBy: 'Hema' },
+    ];
+    const { container } = render(<CartSheet cart={null} viewer={HOST} history={history} placedRows={sampleRows} />);
+    const orderedSection = container.querySelector('.ordered-so-far');
+    const placedSection = container.querySelector('.cart-sheet__placed-section');
+    expect(orderedSection).toBeInTheDocument();
+    expect(placedSection).toBeInTheDocument();
+    expect(orderedSection.compareDocumentPosition(placedSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });
+

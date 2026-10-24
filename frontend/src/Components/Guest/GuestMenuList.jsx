@@ -21,6 +21,7 @@ export const GuestMenuList = ({
   onNeedRefresh,
   cart,
   viewerId,
+  orderedQuantities,
   onAdd,
   busy,
   reloadToken,
@@ -148,6 +149,11 @@ export const GuestMenuList = ({
                     {myQuantityFor(cart, dish.id, viewerId) > 0 && (
                       <span className="guest-dish-in-order">
                         {MESSAGES.guest.cartInYourOrder(myQuantityFor(cart, dish.id, viewerId))}
+                      </span>
+                    )}
+                    {orderedQuantities && orderedQuantities[dish.id] > 0 && (
+                      <span className="guest-dish-ordered">
+                        {MESSAGES.guest.orderedSoFar(orderedQuantities[dish.id])}
                       </span>
                     )}
                     {!isSafeForGuest(dish) && (

@@ -60,6 +60,7 @@ vi.mock('../services/guestOrderService.js', () => ({
   fetchPlacedItems: vi.fn().mockResolvedValue([]),
   placeOrder: vi.fn(),
   cancelPlacedItem: vi.fn(),
+  fetchTableOrders: vi.fn().mockResolvedValue({ orders: [], totals: { dishes: 0, items: 0 } }),
 }));
 
 vi.mock('../hooks/useCart.js', () => ({

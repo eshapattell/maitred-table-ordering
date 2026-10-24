@@ -563,5 +563,78 @@ describe('sourceRules (rule 12 safety and architecture checks)', () => {
       expect(found, `${file} uses forbidden cartPlaceholder`).toEqual([]);
     }
   });
+
+  test('scanned files list includes hooks/useTableOrders.js and Components/Guest/OrderedSoFar.jsx', () => {
+    const checkScannedList = (files, requiredFiles) => {
+      const normalized = files.map((f) => f.replace(/\\/g, '/'));
+      return requiredFiles.filter((req) => !normalized.some((f) => f.endsWith(req)));
+    };
+
+    // Self-checks
+    expect(checkScannedList(['a/b/c.js'], ['b/c.js'])).toEqual([]);
+    expect(checkScannedList(['a/b/c.js'], ['missing.js'])).toEqual(['missing.js']);
+
+    const allSource = getAllSourceFiles(SRC_DIR);
+    const missing = checkScannedList(allSource, [
+      'hooks/useTableOrders.js',
+      'Components/Guest/OrderedSoFar.jsx',
+    ]);
+    expect(missing, `Missing files in scanned list: ${missing.join(', ')}`).toEqual([]);
+  });
+
+  test('hooks/useTableOrders.js and Components/Guest/OrderedSoFar.jsx contain no "response?.data?.message", "response.data.message", "MESSAGES?." or staff token keys', () => {
+    const checkTableOrdersWording = (filePath, content) => {
+      const norm = filePath.replace(/\\/g, '/');
+      const isTarget = norm.endsWith('hooks/useTableOrders.js') || norm.endsWith('Components/Guest/OrderedSoFar.jsx');
+      if (!isTarget) return [];
+      const forbidden = [
+        'response?.data?.message',
+        'response.data.message',
+        'MESSAGES?.',
+        'AUTH_TOKEN',
+        'maitred.authToken',
+        'staffToken',
+        'STAFF_TOKEN_KEY',
+      ];
+      return forbidden.filter((p) => content.includes(p));
+    };
+
+    // Self-checks
+    expect(checkTableOrdersWording('hooks/useTableOrders.js', 'const m = err?.response?.data?.message;')).toEqual(['response?.data?.message']);
+    expect(checkTableOrdersWording('Components/Guest/OrderedSoFar.jsx', 'const m = err.response.data.message;')).toEqual(['response.data.message']);
+    expect(checkTableOrdersWording('hooks/useTableOrders.js', 'const m = MESSAGES?.guest;')).toEqual(['MESSAGES?.']);
+    expect(checkTableOrdersWording('Components/Guest/OrderedSoFar.jsx', 'const t = "staffToken";')).toEqual(['staffToken']);
+    expect(checkTableOrdersWording('hooks/useTableOrders.js', 'const m = "ok";')).toEqual([]);
+    expect(checkTableOrdersWording('other/file.js', 'const m = err.response.data.message;')).toEqual([]);
+
+    const allSource = getAllSourceFiles(SRC_DIR);
+    for (const file of allSource) {
+      const content = fs.readFileSync(file, 'utf8');
+      const found = checkTableOrdersWording(file, content);
+      expect(found, `${file} contains forbidden pattern: ${found.join(', ')}`).toEqual([]);
+    }
+  });
+
+  test('Components/Guest/OrderedSoFar.jsx contains neither ".price" nor "allergyFlags"', () => {
+    const checkOrderedSoFarNoPriceOrAllergies = (filePath, content) => {
+      const norm = filePath.replace(/\\/g, '/');
+      if (!norm.endsWith('Components/Guest/OrderedSoFar.jsx')) return [];
+      const forbidden = ['.price', 'allergyFlags'];
+      return forbidden.filter((p) => content.includes(p));
+    };
+
+    // Self-checks
+    expect(checkOrderedSoFarNoPriceOrAllergies('Components/Guest/OrderedSoFar.jsx', 'const p = row.price;')).toEqual(['.price']);
+    expect(checkOrderedSoFarNoPriceOrAllergies('Components/Guest/OrderedSoFar.jsx', 'const a = row.allergyFlags;')).toEqual(['allergyFlags']);
+    expect(checkOrderedSoFarNoPriceOrAllergies('Components/Guest/OrderedSoFar.jsx', 'const safe = true;')).toEqual([]);
+    expect(checkOrderedSoFarNoPriceOrAllergies('Components/Guest/CartSheet.jsx', 'const p = row.price;')).toEqual([]);
+
+    const allSource = getAllSourceFiles(SRC_DIR);
+    for (const file of allSource) {
+      const content = fs.readFileSync(file, 'utf8');
+      const found = checkOrderedSoFarNoPriceOrAllergies(file, content);
+      expect(found, `${file} contains forbidden price or allergy property: ${found.join(', ')}`).toEqual([]);
+    }
+  });
 });
 

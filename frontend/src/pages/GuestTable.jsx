@@ -12,8 +12,10 @@ import CartSheet from '../Components/Guest/CartSheet.jsx';
 import { useGuestTable } from '../hooks/useGuestTable.js';
 import { useCart } from '../hooks/useCart.js';
 import { useHostOrders } from '../hooks/useHostOrders.js';
+import { useTableOrders } from '../hooks/useTableOrders.js';
 import { useLiveConnection } from '../hooks/useLiveConnection.js';
 import { pollIntervalFor, cartSummary } from '../utils/guestCart.js';
+import { orderedQuantities, historySummary } from '../utils/tableOrders.js';
 import {
   screenFor,
   isHost,
@@ -54,11 +56,16 @@ export const GuestTable = () => {
     onStale: () => setMenuReload((n) => n + 1),
   });
 
+  const tableOrders = useTableOrders({ enabled: onMenu });
+
   const { liveState } = useLiveConnection({
     enabled: table.status === 'ready',
     getCartVersion: cart.getVersion,
     onSessionChanged: table.refresh,
-    onCartChanged: cart.refresh,
+    onCartChanged: () => {
+      cart.refresh();
+      tableOrders.load();
+    },
     onLiveChange: setLiveFlag,
   });
 
@@ -70,6 +77,14 @@ export const GuestTable = () => {
 
   const prevCartVersionRef = useRef(cart.cart?.version);
   useEffect(() => {
+    if (
+      onMenu &&
+      prevCartVersionRef.current !== undefined &&
+      cart.cart?.version !== undefined &&
+      cart.cart.version !== prevCartVersionRef.current
+    ) {
+      tableOrders.load();
+    }
     if (isCartModalOpen && isHost(data?.me)) {
       if (
         prevCartVersionRef.current !== undefined &&
@@ -80,7 +95,7 @@ export const GuestTable = () => {
       }
     }
     prevCartVersionRef.current = cart.cart?.version;
-  }, [isCartModalOpen, data?.me, cart.cart?.version, orders.loadPlaced]);
+  }, [onMenu, isCartModalOpen, data?.me, cart.cart?.version, orders.loadPlaced, tableOrders.load]);
 
   const prevDataRef = useRef(table.data);
   useEffect(() => {
@@ -91,9 +106,10 @@ export const GuestTable = () => {
       prevDataRef.current !== table.data
     ) {
       cart.refresh();
+      tableOrders.load();
     }
     prevDataRef.current = table.data;
-  }, [onMenu, table.data]);
+  }, [onMenu, table.data, cart.refresh, tableOrders.load]);
 
   if (status === 'noToken') {
     return (
@@ -206,6 +222,7 @@ export const GuestTable = () => {
   const handleOpenCart = () => {
     setIsCartModalOpen(true);
     orders.loadPlaced();
+    tableOrders.load();
   };
 
   const handleCloseCart = () => {
@@ -295,12 +312,14 @@ export const GuestTable = () => {
                   onNeedRefresh={refresh}
                   cart={cart.cart}
                   viewerId={data?.me?.id}
+                  orderedQuantities={orderedQuantities(tableOrders.history)}
                   onAdd={(dish) => cart.add(dish.id)}
                   busy={cart.busy}
                   reloadToken={menuReload}
                 />
                 <CartBar
                   summary={cartSummary(cart.cart)}
+                  orderedItems={historySummary(tableOrders.history).items}
                   onOpen={handleOpenCart}
                 />
                 {isCartModalOpen && (
@@ -313,6 +332,7 @@ export const GuestTable = () => {
                       cart={cart.cart}
                       viewerId={data?.me?.id}
                       viewer={data?.me}
+                      history={tableOrders.history}
                       busy={cart.busy}
                       error={cart.error}
                       placing={orders.placing}

@@ -403,4 +403,67 @@ describe('GuestMenuList', () => {
       expect(guestService.fetchGuestMenu).toHaveBeenCalledTimes(2);
     });
   });
+
+  it('shows orderedQuantities count on the right dish only', async () => {
+    guestService.fetchGuestMenu.mockResolvedValue(sampleDishes);
+
+    render(<GuestMenuList orderedQuantities={{ 'dish-1': 3 }} />);
+
+    expect(await screen.findByText(MESSAGES.guest.orderedSoFar(3))).toBeInTheDocument();
+    expect(screen.queryByText(MESSAGES.guest.orderedSoFar(1))).not.toBeInTheDocument();
+  });
+
+  it('zero or missing ordered count shows nothing', async () => {
+    guestService.fetchGuestMenu.mockResolvedValue(sampleDishes);
+
+    const { rerender } = render(<GuestMenuList orderedQuantities={{ 'dish-1': 0 }} />);
+
+    await screen.findByText('Paneer Tikka');
+    expect(screen.queryByText(/Ordered so far/i)).not.toBeInTheDocument();
+
+    rerender(<GuestMenuList orderedQuantities={{}} />);
+    expect(screen.queryByText(/Ordered so far/i)).not.toBeInTheDocument();
+
+    rerender(<GuestMenuList />);
+    expect(screen.queryByText(/Ordered so far/i)).not.toBeInTheDocument();
+  });
+
+  it('shows orderedSoFar together with In your order', async () => {
+    guestService.fetchGuestMenu.mockResolvedValue([sampleDishes[0]]);
+
+    const viewer = { id: 'p1', role: 'guest', status: 'approved', allergiesDeclared: true, allergies: [] };
+    const session = {
+      cartVersion: 1,
+      participants: [viewer],
+      cart: [
+        {
+          cartItemId: '00000000-0000-4000-8000-000000000001',
+          itemId: 'dish-1',
+          qty: 2,
+          addedBy: 'p1',
+          isSurprise: false,
+        },
+      ],
+    };
+    const backendItem = { ...sampleDishes[0], _id: sampleDishes[0].id, available: true };
+    const cart = buildCartView({ session, items: [backendItem], viewer });
+
+    render(<GuestMenuList cart={cart} viewerId="p1" orderedQuantities={{ 'dish-1': 5 }} />);
+
+    expect(await screen.findByText(MESSAGES.guest.cartInYourOrder(2))).toBeInTheDocument();
+    expect(screen.getByText(MESSAGES.guest.orderedSoFar(5))).toBeInTheDocument();
+  });
+
+  it('shows orderedSoFar on an unsafe dish too (information, not an Add button)', async () => {
+    // sampleDishes[1] is Prawn Balchao, safe: false
+    guestService.fetchGuestMenu.mockResolvedValue([sampleDishes[1]]);
+    const onAdd = vi.fn();
+
+    render(<GuestMenuList onAdd={onAdd} orderedQuantities={{ 'dish-2': 4 }} />);
+
+    expect(await screen.findByText(MESSAGES.guest.orderedSoFar(4))).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: MESSAGES.guest.cartAddAria('Prawn Balchao') })).not.toBeInTheDocument();
+    expect(onAdd).not.toHaveBeenCalled();
+  });
 });
+

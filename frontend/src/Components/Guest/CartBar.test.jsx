@@ -39,4 +39,46 @@ describe('CartBar', () => {
 
     expect(screen.getByRole('button')).toHaveClass('guest-cart-bar');
   });
+
+  it('renders cartBarOrdered text when cart is empty and orderedItems is positive', () => {
+    const { rerender } = render(
+      <CartBar summary={{ itemCount: 0, total: 0 }} orderedItems={3} onOpen={vi.fn()} />
+    );
+    expect(screen.getByRole('button')).toHaveTextContent(
+      'View table order: nothing new in the cart, 3 items ordered so far'
+    );
+
+    rerender(
+      <CartBar summary={{ itemCount: 0, total: 0 }} orderedItems={1} onOpen={vi.fn()} />
+    );
+    expect(screen.getByRole('button')).toHaveTextContent(
+      'View table order: nothing new in the cart, 1 item ordered so far'
+    );
+  });
+
+  it('renders old empty text when cart is empty and orderedItems is zero, negative, or undefined', () => {
+    const { rerender } = render(
+      <CartBar summary={{ itemCount: 0, total: 0 }} orderedItems={0} onOpen={vi.fn()} />
+    );
+    expect(screen.getByRole('button')).toHaveTextContent('Table order is empty');
+
+    rerender(
+      <CartBar summary={{ itemCount: 0, total: 0 }} orderedItems={-1} onOpen={vi.fn()} />
+    );
+    expect(screen.getByRole('button')).toHaveTextContent('Table order is empty');
+
+    rerender(
+      <CartBar summary={{ itemCount: 0, total: 0 }} onOpen={vi.fn()} />
+    );
+    expect(screen.getByRole('button')).toHaveTextContent('Table order is empty');
+  });
+
+  it('renders old text when cart has lines, unaffected by orderedItems', () => {
+    render(
+      <CartBar summary={{ itemCount: 2, total: 500 }} orderedItems={5} onOpen={vi.fn()} />
+    );
+    expect(screen.getByRole('button')).toHaveTextContent('View table order: 2 items, ₹500');
+    expect(screen.getByRole('button')).not.toHaveTextContent('nothing new in the cart');
+  });
 });
+

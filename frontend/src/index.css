@@ -1867,3 +1867,122 @@ a:hover {
   min-height: var(--tap-target);
   padding: var(--space-2) var(--space-3);
 }
+
+/* Task 11e: Ordered so far section in cart sheet and dish card badge */
+.ordered-so-far {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.ordered-so-far__heading {
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  font-weight: 500;
+  color: var(--color-text);
+  margin: 0 0 var(--space-1) 0;
+}
+
+.ordered-so-far__summary {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-3) 0;
+}
+
+.ordered-so-far__empty {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.ordered-so-far__rounds {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.ordered-round {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ordered-round__title {
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-accent);
+  margin: 0;
+}
+
+.ordered-round__items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ordered-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  transition: opacity var(--transition);
+}
+
+.ordered-row--cancelled {
+  opacity: 0.55;
+  background: var(--color-surface-raised);
+}
+
+.ordered-row__content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.ordered-row__line {
+  font-weight: 500;
+  color: var(--color-text);
+  font-size: 0.9375rem;
+  overflow-wrap: break-word;
+}
+
+.ordered-row__by {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  overflow-wrap: break-word;
+}
+
+.ordered-row__cancelled-tag {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius);
+  padding: 0.125rem var(--space-2);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.guest-dish-ordered {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius);
+  padding: var(--space-1) var(--space-2);
+  margin-top: var(--space-2);
+  width: fit-content;
+}
